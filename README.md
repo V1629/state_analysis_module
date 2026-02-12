@@ -36,11 +36,6 @@ A robust, production-ready Python module for extracting and analyzing temporal r
 pip install -r requirements.txt
 ```
 
-### Dependencies
-- `dateparser>=1.2.0` - Core temporal parsing
-- `fastapi>=0.104.0` - API framework (optional)
-- `uvicorn>=0.24.0` - ASGI server (optional)
-- `pydantic>=2.0.0` - Data validation (optional)
 
 ---
 
