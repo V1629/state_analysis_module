@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 # CONFIGURATION
 # ==========================================
 
-HF_TOKEN = "please_insert_an_acess_token_mam!!!"
+HF_TOKEN = "isme apna acces token lga lijiye"
 
 if not HF_TOKEN:
     print("❌ Error: HF_TOKEN environment variable not set.")
