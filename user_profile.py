@@ -45,14 +45,14 @@ STATE_ACTIVATION_CONFIG = {
     'mid_term': {
         'name': '📈 Mid-term (31-365 days)',
         'min_days': 14,
-        'min_messages': 40,
+        'min_messages': 30,
         'description': 'Patterns over 2 weeks / ~6 msgs per day',
         'window_size': 15  # Rolling window: look at last 15 messages
     },
     'long_term': {
         'name': '🏛️ Long-term (365+ days)',
         'min_days': 90,
-        'min_messages': 150,
+        'min_messages': 50,
         'description': 'Baseline personality over 3 months / ~1.7 msgs per day'
     }
 }
@@ -129,7 +129,7 @@ class UserProfile:
         # ===== ADAPTIVE WEIGHTS SYSTEM =====
         # Initialize with hierarchy: emotion > recency > repetition > confidence
         self.adaptive_weights = INITIAL_WEIGHTS.copy()
-        self.weights_learning_enabled = False  # Enable when mid_term activates
+        self.weights_learning_enabled = False  # Enable when mid_term activates#########################will be enalbled after 50 messages
         self.weight_adjustment_history = []    # Track weight changes over time
 
     # ============================================================
@@ -320,6 +320,11 @@ class UserProfile:
             # Enable weight learning when mid-term activates
             if self.is_state_activated('mid_term') and not self.weights_learning_enabled:
                 self.weights_learning_enabled = True
+                self._enable_weight_learning()
+            
+            # Update adaptive weights every 10 messages (after learning is enabled)
+            if self.weights_learning_enabled and self.message_count % 10 == 0:
+                self._update_adaptive_weights()
             
         except Exception as e:
             print(f"⚠️  Error updating emotional state: {e}")
@@ -342,6 +347,245 @@ class UserProfile:
                     state[emotion] = state[emotion] / total
         except Exception as e:
             print(f"⚠️  Error normalizing {state_type} state: {e}")
+
+    # ============================================================
+    # ADAPTIVE WEIGHT LEARNING SYSTEM
+    # ============================================================
+
+    def _analyze_chat_patterns(self) -> Dict[str, Any]:
+        """
+        Analyze chat history to understand user's emotional patterns
+        
+        Returns:
+            Dictionary with pattern analysis results
+        """
+        if not self.message_history or len(self.message_history) < 10:
+            return {}
+        
+        try:
+            from collections import Counter
+            
+            emotion_frequency = Counter()
+            emotion_intensity_sum = 0.0
+            temporal_refs_count = 0
+            all_emotions_list = []
+            recent_count = 0
+            past_count = 0
+            
+            for msg_entry in self.message_history:
+                emotions = msg_entry.get('emotions_detected', {})
+                
+                # Collect emotions
+                for emotion, score in emotions.items():
+                    emotion_frequency[emotion] += 1
+                    emotion_intensity_sum += score
+                    all_emotions_list.append((emotion, score))
+                
+                # Track temporal references
+                temporal_cat = msg_entry.get('temporal_category', 'unknown')
+                if temporal_cat == 'recent':
+                    recent_count += 1
+                    temporal_refs_count += 1
+                elif temporal_cat in ['medium', 'distant']:
+                    past_count += 1
+                    temporal_refs_count += 1
+            
+            # Calculate averages
+            avg_emotion_intensity = emotion_intensity_sum / len(all_emotions_list) if all_emotions_list else 0.5
+            temporal_ref_ratio = temporal_refs_count / len(self.message_history) if self.message_history else 0.0
+            
+            # Analyze recency pattern
+            total_temporal = recent_count + past_count
+            if total_temporal == 0:
+                recency_pattern = 'no_temporal_data'
+            else:
+                recent_ratio = recent_count / total_temporal
+                if recent_ratio > 0.6:
+                    recency_pattern = 'recent_focused'
+                elif recent_ratio < 0.4:
+                    recency_pattern = 'past_focused'
+                else:
+                    recency_pattern = 'mixed'
+            
+            # Find dominant emotion
+            dominant_emotion = emotion_frequency.most_common(1)[0][0] if emotion_frequency else None
+            
+            # Analyze repetition patterns
+            repetition_pattern = {}
+            for emotion, freq in emotion_frequency.items():
+                if freq > 1:
+                    repetition_pattern[emotion] = freq
+            
+            # Temporal specificity (simplified - based on temporal ref ratio)
+            temporal_specificity = temporal_ref_ratio
+            
+            return {
+                'emotion_frequency': dict(emotion_frequency),
+                'emotion_intensity_avg': round(avg_emotion_intensity, 4),
+                'recency_pattern': recency_pattern,
+                'temporal_specificity': round(temporal_specificity, 4),
+                'repetition_pattern': repetition_pattern,
+                'dominant_emotion': dominant_emotion,
+                'temporal_ref_ratio': round(temporal_ref_ratio, 4),
+                'message_count': len(self.message_history)
+            }
+        except Exception as e:
+            print(f"⚠️  Error analyzing chat patterns: {e}")
+            return {}
+
+    def _calculate_adaptive_weights(self) -> Dict[str, float]:
+        """
+        Calculate adaptive weights based on chat patterns
+        
+        Returns:
+            Adjusted weights that sum to 1.0
+        """
+        if not self.weights_learning_enabled or len(self.message_history) < 10:
+            return self.adaptive_weights.copy()
+        
+        try:
+            patterns = self._analyze_chat_patterns()
+            
+            if not patterns:
+                return self.adaptive_weights.copy()
+            
+            # Start with initial weights
+            new_weights = INITIAL_WEIGHTS.copy()
+            
+            # ===== ADJUSTMENT 1: Emotion Intensity =====
+            emotion_intensity = patterns.get('emotion_intensity_avg', 0.5)
+            
+            if emotion_intensity > 0.7:
+                # Very emotional user - increase emotion weight
+                new_weights['emotion_intensity'] = min(0.55, INITIAL_WEIGHTS['emotion_intensity'] + 0.05)
+            elif emotion_intensity < 0.3:
+                # Low emotional expression - decrease emotion weight
+                new_weights['emotion_intensity'] = max(0.35, INITIAL_WEIGHTS['emotion_intensity'] - 0.05)
+            
+            # ===== ADJUSTMENT 2: Recency Weight =====
+            recency_pattern = patterns.get('recency_pattern', 'mixed')
+            
+            if recency_pattern == 'recent_focused':
+                # User cares about recent events
+                new_weights['recency_weight'] = min(0.40, INITIAL_WEIGHTS['recency_weight'] + 0.05)
+            elif recency_pattern == 'past_focused':
+                # User focuses on past - decrease recency weight
+                new_weights['recency_weight'] = max(0.20, INITIAL_WEIGHTS['recency_weight'] - 0.05)
+            
+            # ===== ADJUSTMENT 3: Recurrence Boost =====
+            repetition_pattern = patterns.get('repetition_pattern', {})
+            repetition_count = len(repetition_pattern)
+            
+            if repetition_count > 3:
+                # Many repeated emotions - increase recurrence weight
+                new_weights['recurrence_boost'] = min(0.25, INITIAL_WEIGHTS['recurrence_boost'] + 0.05)
+            elif repetition_count == 0:
+                # No repetition - decrease recurrence weight
+                new_weights['recurrence_boost'] = max(0.05, INITIAL_WEIGHTS['recurrence_boost'] - 0.05)
+            
+            # ===== ADJUSTMENT 4: Temporal Confidence =====
+            temporal_specificity = patterns.get('temporal_specificity', 0.5)
+            temporal_ref_ratio = patterns.get('temporal_ref_ratio', 0.5)
+            
+            if temporal_ref_ratio < 0.3:
+                # User rarely mentions dates - decrease temporal confidence weight
+                new_weights['temporal_confidence'] = max(0.05, INITIAL_WEIGHTS['temporal_confidence'] - 0.03)
+            elif temporal_specificity > 0.8:
+                # User is very specific about dates - increase temporal confidence weight
+                new_weights['temporal_confidence'] = min(0.15, INITIAL_WEIGHTS['temporal_confidence'] + 0.03)
+            
+            # Normalize weights to sum to 1.0
+            total_weight = sum(new_weights.values())
+            if total_weight > 0:
+                normalized_weights = {k: v/total_weight for k, v in new_weights.items()}
+            else:
+                normalized_weights = INITIAL_WEIGHTS.copy()
+            
+            # Store in history
+            self.weight_adjustment_history.append({
+                'timestamp': datetime.now().isoformat(),
+                'message_count': self.message_count,
+                'old_weights': self.adaptive_weights.copy(),
+                'new_weights': normalized_weights.copy(),
+                'patterns': patterns,
+                'reason': self._get_adjustment_reason(self.adaptive_weights, normalized_weights)
+            })
+            
+            return normalized_weights
+        except Exception as e:
+            print(f"⚠️  Error calculating adaptive weights: {e}")
+            return self.adaptive_weights.copy()
+
+    @staticmethod
+    def _get_adjustment_reason(old: dict, new: dict) -> str:
+        """Explain why weights changed"""
+        try:
+            reasons = []
+            
+            for key in old:
+                if key in new:
+                    diff = new[key] - old[key]
+                    if abs(diff) > 0.01:
+                        direction = "increased" if diff > 0 else "decreased"
+                        reasons.append(f"{key}: {direction} by {abs(diff):.3f}")
+            
+            return " | ".join(reasons) if reasons else "No significant changes"
+        except Exception as e:
+            return f"Error: {e}"
+
+    def _enable_weight_learning(self):
+        """Enable adaptive weight learning (called when mid_term activates)"""
+        try:
+            print(f"\n✨ ENABLING ADAPTIVE WEIGHT LEARNING")
+            print(f"   System will now adjust weights based on chat patterns...\n")
+            
+            # Calculate initial adaptive weights
+            self.adaptive_weights = self._calculate_adaptive_weights()
+            
+            print(f"📊 Initial Adaptive Weights:")
+            for weight_name, value in self.adaptive_weights.items():
+                print(f"   {weight_name:25s}: {value:.4f} ({value*100:.1f}%)")
+            print()
+        except Exception as e:
+            print(f"⚠️  Error enabling weight learning: {e}")
+
+    def _update_adaptive_weights(self):
+        """
+        Update weights periodically based on new chat patterns
+        Called every 10 messages after mid-term activation
+        """
+        if not self.weights_learning_enabled:
+            return
+        
+        try:
+            old_weights = self.adaptive_weights.copy()
+            self.adaptive_weights = self._calculate_adaptive_weights()
+            
+            # Check if weights actually changed
+            weight_changed = any(
+                abs(self.adaptive_weights.get(k, 0) - old_weights.get(k, 0)) > 0.01 
+                for k in old_weights
+            )
+            
+            if weight_changed:
+                print(f"\n🔄 WEIGHT ADJUSTMENT at Message {self.message_count}")
+                print(f"   Analyzing chat patterns and updating weights...\n")
+                
+                for weight_name in old_weights:
+                    old_val = old_weights[weight_name]
+                    new_val = self.adaptive_weights.get(weight_name, old_val)
+                    change = new_val - old_val
+                    
+                    if abs(change) > 0.001:
+                        direction = "↑" if change > 0 else "↓"
+                        print(f"   {direction} {weight_name:25s}: {old_val:.4f} → {new_val:.4f}")
+                print()
+        except Exception as e:
+            print(f"⚠️  Error updating adaptive weights: {e}")
+
+    # ============================================================
+    # STATE AGGREGATION
+    # ============================================================
 
     def _update_mid_term_rolling_window(self):
         """Update mid-term state using rolling window"""
