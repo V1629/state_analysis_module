@@ -12,8 +12,11 @@ from typing import Dict, List, Optional
 # ==========================================
 # CONFIGURATION
 # ==========================================
+from dotenv import load_dotenv
 
-HF_TOKEN = "isme apna acces token lga lijiye"
+# Load variables from .env file
+load_dotenv()
+HF_TOKEN = os.getenv('hf_token')
 
 if not HF_TOKEN:
     print("❌ Error: HF_TOKEN environment variable not set.")

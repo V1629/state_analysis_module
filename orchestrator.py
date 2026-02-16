@@ -541,3 +541,191 @@ class EmotionalStateOrchestrator:
         if reference_date is None:
             reference_date = datetime.now()
         
+        # ==============================================================
+        # STEP 1: DETECT EMOTIONS
+        # ==============================================================
+        
+        emotions_detected = classify_emotions(message)
+        
+        if not emotions_detected:
+            # No emotions detected - return minimal analysis
+            return IncidentAnalysis(
+                original_message=message,
+                emotions_detected={},
+                temporal_references={
+                    'has_temporal_ref': False,
+                    'phrases_found': [],
+                    'parsed_dates': []
+                },
+                impact_score=0.0,
+                state_updates={},
+                analysis_summary="No emotions detected in message",
+                recurrence_count=0
+            )
+        
+        # ==============================================================
+        # STEP 2: EXTRACT TEMPORAL REFERENCES
+        # ==============================================================
+        
+        temporal_info = self.temporal_extractor.extract_temporal_references(
+            message, 
+            reference_date
+        )
+        
+        # Get age category for impact calculation
+        age_category = "unknown"
+        temporal_confidence = 0.5  # Default medium confidence
+        days_ago = 0
+        
+        if temporal_info['has_temporal_ref'] and temporal_info['parsed_dates']:
+            # Use the first (highest confidence) temporal reference
+            best_match = temporal_info['parsed_dates'][0]
+            age_category = best_match.get('age_category', 'unknown')
+            temporal_confidence = best_match.get('confidence', 0.5)
+            days_ago = best_match.get('days_ago', 0)
+        
+        # ==============================================================
+        # STEP 3: INITIALIZE OR GET USER PROFILE
+        # ==============================================================
+        
+        if user_id not in self.user_profiles:
+            self.user_profiles[user_id] = UserProfile(user_id)
+        
+        profile = self.user_profiles[user_id]
+        
+        # ==============================================================
+        # STEP 4: DETECT REPEATED INCIDENTS
+        # ==============================================================
+        
+        repetition_info = self.incident_detector.find_repeated_incidents(
+            current_message=message,
+            message_history=profile.message_history,
+            similarity_threshold=0.2
+        )
+        
+        incident_count = repetition_info['incident_count']
+        
+        # ==============================================================
+        # STEP 5: CALCULATE IMPACT
+        # ==============================================================
+        
+        # Calculate emotion intensity
+        emotion_intensity = self.impact_calculator.calculate_emotion_intensity(emotions_detected)
+        
+        # Calculate recency weight
+        recency_weight = self.impact_calculator.calculate_recency_weight(days_ago)
+        
+        # Calculate recurrence boost
+        recurrence_boost = self.impact_calculator.calculate_recurrence_boost(incident_count)
+        
+        # Get adaptive weights from profile
+        adaptive_weights = profile.adaptive_weights
+        
+        # Calculate compound impact
+        impact_score = self.impact_calculator.calculate_compound_impact(
+            emotion_intensity=emotion_intensity,
+            recency_weight=recency_weight,
+            temporal_confidence=temporal_confidence,
+            recurrence_boost=recurrence_boost,
+            writing_time=writing_time,
+            message_length=len(message),
+            adaptive_weights=adaptive_weights
+        )
+        
+        # ==============================================================
+        # STEP 6: GET STATE IMPACT MULTIPLIERS
+        # ==============================================================
+        
+        state_multipliers = self.impact_calculator.get_state_impact_multipliers(age_category)
+        
+        # ==============================================================
+        # STEP 7: UPDATE USER PROFILE
+        # ==============================================================
+        
+        state_updates = {}
+        
+        for emotion, score in emotions_detected.items():
+            # Calculate weighted impact for each state
+            weighted_impacts = {
+                'short_term': score * impact_score * state_multipliers['short_term'],
+                'mid_term': score * impact_score * state_multipliers['mid_term'],
+                'long_term': score * impact_score * state_multipliers['long_term']
+            }
+            
+            state_updates[emotion] = weighted_impacts
+        
+        # Update profile with new emotional data
+        profile.update_emotional_state(
+            emotions=emotions_detected,
+            impact_score=impact_score,
+            state_updates=state_updates,
+            message=message,
+            timestamp=reference_date,
+            temporal_category=age_category
+        )
+        
+        # ==============================================================
+        # STEP 8: GENERATE ANALYSIS SUMMARY
+        # ==============================================================
+        
+        # Get top emotion
+        top_emotion = max(emotions_detected.items(), key=lambda x: x[1])
+        top_emotion_name = top_emotion[0]
+        top_emotion_score = top_emotion[1]
+        
+        # Build summary
+        summary_parts = []
+        summary_parts.append(f"Primary emotion: {top_emotion_name} ({top_emotion_score:.2f})")
+        
+        if temporal_info['has_temporal_ref']:
+            summary_parts.append(f"Temporal reference: {age_category}")
+        
+        if incident_count > 1:
+            summary_parts.append(f"Repeated incident (x{incident_count})")
+        
+        summary_parts.append(f"Impact: {impact_score:.2f}")
+        
+        analysis_summary = " | ".join(summary_parts)
+        
+        # ==============================================================
+        # STEP 9: RETURN ANALYSIS
+        # ==============================================================
+        
+        return IncidentAnalysis(
+            original_message=message,
+            emotions_detected=emotions_detected,
+            temporal_references=temporal_info,
+            impact_score=impact_score,
+            state_updates=state_updates,
+            analysis_summary=analysis_summary,
+            recurrence_count=incident_count
+        )
+    
+    # ==============================================================
+    # HELPER METHOD: GET USER PROFILE
+    # ==============================================================
+    
+    def get_user_profile(self, user_id: str) -> Optional[UserProfile]:
+        """
+        Get user profile by ID
+        
+        Args:
+            user_id: User identifier
+            
+        Returns:
+            UserProfile object or None if not found
+        """
+        return self.user_profiles.get(user_id)
+    
+    # ==============================================================
+    # HELPER METHOD: GET ALL USER IDS
+    # ==============================================================
+    
+    def get_all_user_ids(self) -> List[str]:
+        """
+        Get list of all user IDs with profiles
+        
+        Returns:
+            List of user IDs
+        """
+        return list(self.user_profiles.keys())
