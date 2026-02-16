@@ -580,9 +580,12 @@ class EmotionalStateOrchestrator:
         if temporal_info['has_temporal_ref'] and temporal_info['parsed_dates']:
             # Use the first (highest confidence) temporal reference
             best_match = temporal_info['parsed_dates'][0]
+            ###By usig these three lines we take out age category , temporal_confidence and how many days ago it had happened
             age_category = best_match.get('age_category', 'unknown')
             temporal_confidence = best_match.get('confidence', 0.5)
             days_ago = best_match.get('days_ago', 0)
+        
+
         
         # ==============================================================
         # STEP 3: INITIALIZE OR GET USER PROFILE
@@ -700,6 +703,11 @@ class EmotionalStateOrchestrator:
             analysis_summary=analysis_summary,
             recurrence_count=incident_count
         )
+    
+
+
+
+
     
     # ==============================================================
     # HELPER METHOD: GET USER PROFILE

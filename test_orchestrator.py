@@ -281,6 +281,12 @@ def log_to_excel(logger, profile: UserProfile, analysis, message: str):
         print(f"\n⚠️  Logging failed: {log_error}")
 
 
+
+
+
+
+
+
 # ==========================================================
 # MAIN INTERACTION LOOP
 # ==========================================================
