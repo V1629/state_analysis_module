@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from temporal_extractor import TemporalExtractor
 from emotional_detector import classify_emotions
-from user_profile import UserProfile, ALL_EMOTIONS, INITIAL_WEIGHTS
+from user_profile import UserProfile, ALL_EMOTIONS, INITIAL_WEIGHTS, get_effective_alpha
 
 
 # ==========================================================
@@ -64,7 +64,7 @@ class ImpactCalculator:
         return max(0.0, min(1.0, weight))
 
     @staticmethod
-    def calculate_emotion_intensity(emotions_dict: Dict[str, float]) -> float:
+    def calculate_emotion_intensity(emotions_dict: Dict[str, float], entropy_penalty_coeff: float = 0.3) -> float:
         """
         Calculate normalized intensity from emotion probabilities
         
@@ -75,6 +75,7 @@ class ImpactCalculator:
         
         Args:
             emotions_dict: {emotion_name: probability}
+            entropy_penalty_coeff: Per-user entropy penalty coefficient (default 0.3)
         
         Returns:
             Intensity score [0, 1]
@@ -97,20 +98,20 @@ class ImpactCalculator:
             normalized_entropy = 0.0
         
         # High entropy (uncertain) → penalty; Low entropy (confident) → no penalty
-        entropy_penalty = normalized_entropy * 0.3
+        entropy_penalty = max(0, normalized_entropy - entropy_penalty_coeff)
         
         intensity = max_prob * (1 - entropy_penalty)
         
         return max(0.0, min(1.0, intensity))
 
     @staticmethod
-    def calculate_recurrence_boost(incident_count: int) -> float:
+    def calculate_recurrence_boost(incident_count: int, recurrence_step: float = 0.3) -> float:
         """
         Increase emotional weight if same emotion appears repeatedly
         
-        Formula: boost = 1 + (incident_count - 1) * 0.3
+        Formula: boost = 1 + (incident_count - 1) * recurrence_step
         
-        Example:
+        Example (with default recurrence_step=0.3):
         - First occurrence: boost = 1.0 (no boost)
         - Second occurrence: boost = 1.3 (30% increase)
         - Third occurrence: boost = 1.6 (60% increase)
@@ -118,11 +119,12 @@ class ImpactCalculator:
         
         Args:
             incident_count: Number of times emotion has been detected
+            recurrence_step: Per-user step size for recurrence boost (default 0.3)
         
         Returns:
             Boost multiplier [1.0, 2.5]
         """
-        boost = 1 + (max(0, incident_count - 1) * 0.3)
+        boost = 1 + (max(0, incident_count - 1) * recurrence_step)
         return min(2.5, boost)
 
     # ==========================================================
@@ -130,13 +132,14 @@ class ImpactCalculator:
     # ==========================================================
 
     @staticmethod
-    def get_state_impact_multipliers(age_category: str) -> Dict[str, float]:
+    def get_state_impact_multipliers(age_category: str, user_multipliers: Dict = None) -> Dict[str, float]:
         """
         Determine which emotional states are affected by incident
         based on temporal category
         
         Args:
             age_category: 'recent', 'medium', 'distant', 'future', or 'unknown'
+            user_multipliers: Optional per-user multiplier overrides
         
         Returns:
             {
@@ -145,48 +148,30 @@ class ImpactCalculator:
                 'long_term': multiplier [0, 1]
             }
         """
-        impact_map = {
-            "recent": {
-                "short_term": 1.0,    # Full impact on recent state
-                "mid_term": 0.6,      # Moderate spillover
-                "long_term": 0.2      # Minimal on long-term
-            },
-            "medium": {
-                "short_term": 0.3,    # Decaying impact on short-term
-                "mid_term": 0.9,      # Primary impact on mid-term
-                "long_term": 0.5      # Moderate on long-term
-            },
-            "distant": {
-                "short_term": 0.05,   # Negligible on short-term
-                "mid_term": 0.3,      # Low on mid-term
-                "long_term": 0.8      # High impact on long-term (historical)
-            },
-            "unknown": {
-                "short_term": 0.5,    # Assume recent
-                "mid_term": 0.5,
-                "long_term": 0.3
-            },
-            "future": {
-                "short_term": 0.7,    # Strong anticipatory emotions
-                "mid_term": 0.4,      # Moderate projection
-                "long_term": 0.0      # Never update long-term for future
-            }
+        default_map = {
+            "recent": {"short_term": 1.0, "mid_term": 0.6, "long_term": 0.2},
+            "medium": {"short_term": 0.3, "mid_term": 0.9, "long_term": 0.5},
+            "distant": {"short_term": 0.05, "mid_term": 0.3, "long_term": 0.8},
+            "unknown": {"short_term": 0.5, "mid_term": 0.5, "long_term": 0.3},
+            "future": {"short_term": 0.7, "mid_term": 0.4, "long_term": 0.0}
         }
         
-        return impact_map.get(age_category, impact_map["unknown"])
+        impact_map = user_multipliers if user_multipliers else default_map
+        return impact_map.get(age_category, impact_map.get("unknown", default_map["unknown"]))
     
 
     # ----------------------------
     # Behavioral Multiplier
     # ----------------------------
     @staticmethod
-    def calculate_behavior_multiplier(message_length: int, writing_time: float) -> float:
+    def calculate_behavior_multiplier(message_length: int, writing_time: float, behavior_alpha: float = 0.2) -> float:
         """
         Calculate behavior multiplier based on typing speed
         
         Args:
             message_length: Length of message
             writing_time: Time taken to write message
+            behavior_alpha: Per-user influence cap (default 0.2)
         
         Returns:
             Multiplier [0.8, 1.2]
@@ -205,8 +190,8 @@ class ImpactCalculator:
         # Calculate z-score
         z = (speed - mu) / sigma
         
-        # Influence cap at 20%
-        alpha = 0.2
+        # Influence cap
+        alpha = behavior_alpha
 
         # Use tanh to bound the result
         behavior_mult = 1 + alpha * math.tanh(abs(z))
@@ -222,6 +207,7 @@ class ImpactCalculator:
     def update_typing_baseline(speed: float) -> None:
         """
         Update typing speed baseline using exponential moving average
+        Updates both mean and std (MAD-based)
         
         Args:
             speed: Current typing speed (chars per second)
@@ -230,6 +216,11 @@ class ImpactCalculator:
 
         mu = ImpactCalculator.typing_speed_mean
         ImpactCalculator.typing_speed_mean = beta * speed + (1 - beta) * mu
+
+        # EMA update for std using Mean Absolute Deviation
+        sigma = ImpactCalculator.typing_speed_std
+        deviation = abs(speed - mu)
+        ImpactCalculator.typing_speed_std = beta * deviation + (1 - beta) * sigma
 
     # ==========================================================
     # COMPOUND IMPACT CALCULATION - PRODUCTION GRADE
@@ -244,6 +235,7 @@ class ImpactCalculator:
         writing_time: float = 0.0,
         message_length: int = 0,
         adaptive_weights: dict = None,
+        behavior_alpha: float = 0.2,
 
     ) -> float:
         """
@@ -266,6 +258,7 @@ class ImpactCalculator:
             writing_time: Time taken to write message
             message_length: Length of message
             adaptive_weights: User-specific weights (if None, use initial)
+            behavior_alpha: Per-user behavior influence cap (default 0.2)
         
         Returns:
             Compound weight [0, 1]
@@ -293,7 +286,8 @@ class ImpactCalculator:
         # ===== APPLY BEHAVIOR MULTIPLIER =====
         behavior_multiplier = ImpactCalculator.calculate_behavior_multiplier(
             message_length, 
-            writing_time
+            writing_time,
+            behavior_alpha=behavior_alpha
         )
         
         # Final impact with behavior adjustment
@@ -603,7 +597,7 @@ class EmotionalStateOrchestrator:
         repetition_info = self.incident_detector.find_repeated_incidents(
             current_message=message,
             message_history=profile.message_history,
-            similarity_threshold=0.2
+            similarity_threshold=profile.similarity_threshold
         )
         
         incident_count = repetition_info['incident_count']
@@ -613,13 +607,17 @@ class EmotionalStateOrchestrator:
         # ==============================================================
         
         # Calculate emotion intensity
-        emotion_intensity = self.impact_calculator.calculate_emotion_intensity(emotions_detected)
+        emotion_intensity = self.impact_calculator.calculate_emotion_intensity(
+            emotions_detected, entropy_penalty_coeff=profile.entropy_penalty_coeff
+        )
         
         # Calculate recency weight
         recency_weight = self.impact_calculator.calculate_recency_weight(days_ago)
         
         # Calculate recurrence boost
-        recurrence_boost = self.impact_calculator.calculate_recurrence_boost(incident_count)
+        recurrence_boost = self.impact_calculator.calculate_recurrence_boost(
+            incident_count, recurrence_step=profile.recurrence_step
+        )
         
         # Get adaptive weights from profile
         adaptive_weights = profile.adaptive_weights
@@ -632,14 +630,17 @@ class EmotionalStateOrchestrator:
             recurrence_boost=recurrence_boost,
             writing_time=writing_time,
             message_length=len(message),
-            adaptive_weights=adaptive_weights
+            adaptive_weights=adaptive_weights,
+            behavior_alpha=profile.behavior_alpha
         )
         
         # ==============================================================
         # STEP 6: GET STATE IMPACT MULTIPLIERS
         # ==============================================================
         
-        state_multipliers = self.impact_calculator.get_state_impact_multipliers(age_category)
+        state_multipliers = self.impact_calculator.get_state_impact_multipliers(
+            age_category, user_multipliers=profile.impact_multipliers
+        )
         
         # ==============================================================
         # STEP 7: UPDATE USER PROFILE
@@ -657,6 +658,15 @@ class EmotionalStateOrchestrator:
             
             state_updates[emotion] = weighted_impacts
         
+        # Store computed factors on profile for adaptive weight learning
+        normalized_recurrence = (recurrence_boost - 1.0) / 1.5
+        profile._last_computed_factors = {
+            'emotion_intensity': emotion_intensity,
+            'recency_weight': recency_weight,
+            'recurrence_boost': normalized_recurrence,
+            'temporal_confidence': temporal_confidence,
+        }
+        
         # Update profile with new emotional data
         profile.update_emotional_state(
             emotions=emotions_detected,
@@ -666,6 +676,71 @@ class EmotionalStateOrchestrator:
             timestamp=reference_date,
             temporal_category=age_category
         )
+        
+        # ==============================================================
+        # STEP 7b: UPDATE PER-USER EMA PARAMETERS
+        # ==============================================================
+        
+        # Update entropy_penalty_coeff (Parameter 7)
+        if emotions_detected:
+            entropy = 0.0
+            for p in emotions_detected.values():
+                if p > 0:
+                    entropy -= p * math.log(p)
+            n_emo = len(emotions_detected)
+            h_norm = entropy / math.log(n_emo) if n_emo > 1 else 0.0
+            alpha_e = get_effective_alpha(0.10, profile.message_count)
+            profile.entropy_penalty_coeff = alpha_e * h_norm + (1 - alpha_e) * profile.entropy_penalty_coeff
+        
+        # Update recurrence_step (Parameter 8)
+        if incident_count > 1 and hasattr(profile, '_last_emotion_intensity'):
+            delta_intensity = abs(emotion_intensity - profile._last_emotion_intensity)
+            alpha_r = get_effective_alpha(0.15, profile.message_count)
+            profile.recurrence_step = alpha_r * delta_intensity + (1 - alpha_r) * profile.recurrence_step
+        profile._last_emotion_intensity = emotion_intensity
+        
+        # Update impact_multipliers (Parameter 9)
+        # Use weighted average across all detected emotions
+        if age_category in profile.impact_multipliers:
+            alpha_m = get_effective_alpha(0.08, profile.message_count)
+            for state_type in ['short_term', 'mid_term', 'long_term']:
+                expected = impact_score
+                if expected > 0:
+                    weighted_mult_sum = 0.0
+                    weight_sum = 0.0
+                    for emotion, score in emotions_detected.items():
+                        if emotion in profile.short_term_state:
+                            actual_change = score * impact_score * state_multipliers[state_type]
+                            observed_mult = actual_change / expected
+                            weighted_mult_sum += observed_mult * score
+                            weight_sum += score
+                    if weight_sum > 0:
+                        avg_observed_mult = weighted_mult_sum / weight_sum
+                        old_mult = profile.impact_multipliers[age_category][state_type]
+                        profile.impact_multipliers[age_category][state_type] = (
+                            alpha_m * avg_observed_mult + (1 - alpha_m) * old_mult
+                        )
+        
+        # Update behavior_alpha (Parameter 10)
+        # Correlation proxy: measures co-occurrence of typing speed deviation
+        # (z-score) with emotion intensity. High z × high intensity suggests
+        # typing speed is a meaningful emotional signal for this user.
+        if writing_time > 0:
+            speed = len(message) / writing_time
+            mu = ImpactCalculator.typing_speed_mean
+            sigma = max(ImpactCalculator.typing_speed_std, 0.1)
+            z = abs((speed - mu) / sigma)
+            correlation_proxy = min(1.0, z * emotion_intensity)
+            alpha_b = get_effective_alpha(0.10, profile.message_count)
+            profile.behavior_alpha = alpha_b * (0.5 * correlation_proxy) + (1 - alpha_b) * profile.behavior_alpha
+        
+        # Update similarity_threshold (Parameter 14)
+        # Only update when there are actual repetitions to avoid driving toward 0
+        avg_sim = repetition_info.get('average_similarity', 0.0)
+        if avg_sim > 0:
+            alpha_theta = get_effective_alpha(0.10, profile.message_count)
+            profile.similarity_threshold = alpha_theta * avg_sim + (1 - alpha_theta) * profile.similarity_threshold
+            profile.similarity_threshold = max(0.1, min(0.4, profile.similarity_threshold))
         
         # ==============================================================
         # STEP 8: GENERATE ANALYSIS SUMMARY
