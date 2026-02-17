@@ -64,7 +64,7 @@ class ImpactCalculator:
         return max(0.0, min(1.0, weight))
 
     @staticmethod
-    def calculate_emotion_intensity(emotions_dict: Dict[str, float], entropy_penalty_coeff: float = 0.3) -> float:
+    def calculate_emotion_intensity(emotions_dict: Dict[str, float], entropy_penalty_coefficient: float = 0.3) -> float:
         """
         Calculate normalized intensity from emotion probabilities
         
@@ -75,7 +75,7 @@ class ImpactCalculator:
         
         Args:
             emotions_dict: {emotion_name: probability}
-            entropy_penalty_coeff: Per-user entropy penalty coefficient (default 0.3)
+            entropy_penalty_coefficient: Per-user entropy penalty coefficient (default 0.3)
         
         Returns:
             Intensity score [0, 1]
@@ -83,24 +83,24 @@ class ImpactCalculator:
         if not emotions_dict:
             return 0.0
         
-        max_prob = max(emotions_dict.values())
+        max_emotion_probability = max(emotions_dict.values())
         
         # Shannon entropy (normalized)
-        entropy = 0.0
-        for p in emotions_dict.values():
-            if p > 0:
-                entropy -= p * math.log(p)
+        shannon_entropy = 0.0
+        for probability in emotions_dict.values():
+            if probability > 0:
+                shannon_entropy -= probability * math.log(probability)
         
-        n_emotions = len(emotions_dict)
-        if n_emotions > 1:
-            normalized_entropy = entropy / math.log(n_emotions)
+        number_of_emotions = len(emotions_dict)
+        if number_of_emotions > 1:
+            normalized_entropy = shannon_entropy / math.log(number_of_emotions)
         else:
             normalized_entropy = 0.0
         
         # High entropy (uncertain) → penalty; Low entropy (confident) → no penalty
-        entropy_penalty = max(0, normalized_entropy - entropy_penalty_coeff)
+        entropy_penalty = max(0, normalized_entropy - entropy_penalty_coefficient)
         
-        intensity = max_prob * (1 - entropy_penalty)
+        intensity = max_emotion_probability * (1 - entropy_penalty)
         
         return max(0.0, min(1.0, intensity))
 
@@ -164,14 +164,14 @@ class ImpactCalculator:
     # Behavioral Multiplier
     # ----------------------------
     @staticmethod
-    def calculate_behavior_multiplier(message_length: int, writing_time: float, behavior_alpha: float = 0.2) -> float:
+    def calculate_behavior_multiplier(message_length: int, writing_time: float, behavior_influence_cap: float = 0.2) -> float:
         """
         Calculate behavior multiplier based on typing speed
         
         Args:
             message_length: Length of message
             writing_time: Time taken to write message
-            behavior_alpha: Per-user influence cap (default 0.2)
+            behavior_influence_cap: Per-user influence cap (default 0.2)
         
         Returns:
             Multiplier [0.8, 1.2]
@@ -180,23 +180,20 @@ class ImpactCalculator:
         if writing_time <= 0:
             return 1.0
 
-        # Calculate typing speed
-        speed = message_length / writing_time
+        # Calculate typing speed (characters per second)
+        typing_speed = message_length / writing_time
         
-        # Use class variables
-        mu = ImpactCalculator.typing_speed_mean
-        sigma = max(ImpactCalculator.typing_speed_std, 0.1)
+        # Use class variables for baseline comparison
+        baseline_typing_speed_mean = ImpactCalculator.typing_speed_mean
+        baseline_typing_speed_std = max(ImpactCalculator.typing_speed_std, 0.1)
 
-        # Calculate z-score
-        z = (speed - mu) / sigma
-        
-        # Influence cap
-        alpha = behavior_alpha
+        # Calculate z-score (how many standard deviations from mean)
+        typing_speed_z_score = (typing_speed - baseline_typing_speed_mean) / baseline_typing_speed_std
 
-        # Use tanh to bound the result
-        behavior_mult = 1 + alpha * math.tanh(abs(z))
+        # Use tanh to bound the result within influence cap
+        behavior_multiplier = 1 + behavior_influence_cap * math.tanh(abs(typing_speed_z_score))
         
-        return max(0.8, min(1.2, behavior_mult))
+        return max(0.8, min(1.2, behavior_multiplier))
     
 
     # ==========================================================
@@ -204,23 +201,29 @@ class ImpactCalculator:
     # ==========================================================
 
     @staticmethod
-    def update_typing_baseline(speed: float) -> None:
+    def update_typing_baseline(current_typing_speed: float) -> None:
         """
         Update typing speed baseline using exponential moving average
         Updates both mean and std (MAD-based)
         
         Args:
-            speed: Current typing speed (chars per second)
+            current_typing_speed: Current typing speed (chars per second)
         """
-        beta = 0.05
+        ema_smoothing_factor = 0.05
 
-        mu = ImpactCalculator.typing_speed_mean
-        ImpactCalculator.typing_speed_mean = beta * speed + (1 - beta) * mu
+        previous_mean = ImpactCalculator.typing_speed_mean
+        ImpactCalculator.typing_speed_mean = (
+            ema_smoothing_factor * current_typing_speed 
+            + (1 - ema_smoothing_factor) * previous_mean
+        )
 
         # EMA update for std using Mean Absolute Deviation
-        sigma = ImpactCalculator.typing_speed_std
-        deviation = abs(speed - mu)
-        ImpactCalculator.typing_speed_std = beta * deviation + (1 - beta) * sigma
+        previous_std = ImpactCalculator.typing_speed_std
+        current_deviation = abs(current_typing_speed - previous_mean)
+        ImpactCalculator.typing_speed_std = (
+            ema_smoothing_factor * current_deviation 
+            + (1 - ema_smoothing_factor) * previous_std
+        )
 
     # ==========================================================
     # COMPOUND IMPACT CALCULATION - PRODUCTION GRADE
@@ -235,7 +238,7 @@ class ImpactCalculator:
         writing_time: float = 0.0,
         message_length: int = 0,
         adaptive_weights: dict = None,
-        behavior_alpha: float = 0.2,
+        behavior_influence_cap: float = 0.2,
 
     ) -> float:
         """
@@ -243,10 +246,10 @@ class ImpactCalculator:
         WITH ADAPTIVE WEIGHTS (PRODUCTION-GRADE)
         
         Production-ready formula:
-        base_impact = (w_ei × emotion_intensity) 
-                    + (w_rw × recency_weight) 
-                    + (w_tc × temporal_confidence)
-                    + (w_rb × recurrence_boost)
+        base_impact = (weight_emotion × emotion_intensity) 
+                    + (weight_recency × recency_weight) 
+                    + (weight_temporal × temporal_confidence)
+                    + (weight_recurrence × recurrence_boost)
         
         Then apply behavior multiplier
         
@@ -258,7 +261,7 @@ class ImpactCalculator:
             writing_time: Time taken to write message
             message_length: Length of message
             adaptive_weights: User-specific weights (if None, use initial)
-            behavior_alpha: Per-user behavior influence cap (default 0.2)
+            behavior_influence_cap: Per-user behavior influence cap (default 0.2)
         
         Returns:
             Compound weight [0, 1]
@@ -270,14 +273,14 @@ class ImpactCalculator:
         
         # Normalize recurrence_boost to 0-1 range for fair weighting
         # (since it ranges from 1.0-2.5, map it to 0-1)
-        normalized_recurrence = (recurrence_boost - 1.0) / 1.5
+        normalized_recurrence_boost = (recurrence_boost - 1.0) / 1.5
         
         # ===== WEIGHTED SUM APPROACH WITH ADAPTIVE WEIGHTS =====
         base_impact = (
             (adaptive_weights['emotion_intensity'] * emotion_intensity) +
             (adaptive_weights['recency_weight'] * recency_weight) +
             (adaptive_weights['temporal_confidence'] * temporal_confidence) +
-            (adaptive_weights['recurrence_boost'] * normalized_recurrence)
+            (adaptive_weights['recurrence_boost'] * normalized_recurrence_boost)
         )
         
         # Normalize to [0, 1] since we're using weighted sum
@@ -287,7 +290,7 @@ class ImpactCalculator:
         behavior_multiplier = ImpactCalculator.calculate_behavior_multiplier(
             message_length, 
             writing_time,
-            behavior_alpha=behavior_alpha
+            behavior_influence_cap=behavior_influence_cap
         )
         
         # Final impact with behavior adjustment
@@ -295,8 +298,8 @@ class ImpactCalculator:
         
         # Update typing baseline
         if writing_time > 0:
-            speed = message_length / writing_time
-            ImpactCalculator.update_typing_baseline(speed)
+            current_typing_speed = message_length / writing_time
+            ImpactCalculator.update_typing_baseline(current_typing_speed)
         
         # Clamp to valid range
         return max(0.0, min(1.0, final_impact))
@@ -608,7 +611,7 @@ class EmotionalStateOrchestrator:
         
         # Calculate emotion intensity
         emotion_intensity = self.impact_calculator.calculate_emotion_intensity(
-            emotions_detected, entropy_penalty_coeff=profile.entropy_penalty_coeff
+            emotions_detected, entropy_penalty_coefficient=profile.entropy_penalty_coeff
         )
         
         # Calculate recency weight
@@ -631,7 +634,7 @@ class EmotionalStateOrchestrator:
             writing_time=writing_time,
             message_length=len(message),
             adaptive_weights=adaptive_weights,
-            behavior_alpha=profile.behavior_alpha
+            behavior_influence_cap=profile.behavior_alpha
         )
         
         # ==============================================================
@@ -659,11 +662,11 @@ class EmotionalStateOrchestrator:
             state_updates[emotion] = weighted_impacts
         
         # Store computed factors on profile for adaptive weight learning
-        normalized_recurrence = (recurrence_boost - 1.0) / 1.5
+        normalized_recurrence_boost = (recurrence_boost - 1.0) / 1.5
         profile._last_computed_factors = {
             'emotion_intensity': emotion_intensity,
             'recency_weight': recency_weight,
-            'recurrence_boost': normalized_recurrence,
+            'recurrence_boost': normalized_recurrence_boost,
             'temporal_confidence': temporal_confidence,
         }
         
@@ -683,42 +686,49 @@ class EmotionalStateOrchestrator:
         
         # Update entropy_penalty_coeff (Parameter 7)
         if emotions_detected:
-            entropy = 0.0
-            for p in emotions_detected.values():
-                if p > 0:
-                    entropy -= p * math.log(p)
-            n_emo = len(emotions_detected)
-            h_norm = entropy / math.log(n_emo) if n_emo > 1 else 0.0
-            alpha_e = get_effective_alpha(0.10, profile.message_count)
-            profile.entropy_penalty_coeff = alpha_e * h_norm + (1 - alpha_e) * profile.entropy_penalty_coeff
+            shannon_entropy = 0.0
+            for probability in emotions_detected.values():
+                if probability > 0:
+                    shannon_entropy -= probability * math.log(probability)
+            number_of_emotions = len(emotions_detected)
+            normalized_entropy = shannon_entropy / math.log(number_of_emotions) if number_of_emotions > 1 else 0.0
+            entropy_learning_rate = get_effective_alpha(0.10, profile.message_count)
+            profile.entropy_penalty_coeff = (
+                entropy_learning_rate * normalized_entropy 
+                + (1 - entropy_learning_rate) * profile.entropy_penalty_coeff
+            )
         
         # Update recurrence_step (Parameter 8)
         if incident_count > 1 and hasattr(profile, '_last_emotion_intensity'):
-            delta_intensity = abs(emotion_intensity - profile._last_emotion_intensity)
-            alpha_r = get_effective_alpha(0.15, profile.message_count)
-            profile.recurrence_step = alpha_r * delta_intensity + (1 - alpha_r) * profile.recurrence_step
+            intensity_change = abs(emotion_intensity - profile._last_emotion_intensity)
+            recurrence_learning_rate = get_effective_alpha(0.15, profile.message_count)
+            profile.recurrence_step = (
+                recurrence_learning_rate * intensity_change 
+                + (1 - recurrence_learning_rate) * profile.recurrence_step
+            )
         profile._last_emotion_intensity = emotion_intensity
         
         # Update impact_multipliers (Parameter 9)
         # Use weighted average across all detected emotions
         if age_category in profile.impact_multipliers:
-            alpha_m = get_effective_alpha(0.08, profile.message_count)
+            multiplier_learning_rate = get_effective_alpha(0.08, profile.message_count)
             for state_type in ['short_term', 'mid_term', 'long_term']:
-                expected = impact_score
-                if expected > 0:
-                    weighted_mult_sum = 0.0
-                    weight_sum = 0.0
-                    for emotion, score in emotions_detected.items():
+                expected_impact = impact_score
+                if expected_impact > 0:
+                    weighted_multiplier_sum = 0.0
+                    emotion_weight_sum = 0.0
+                    for emotion, emotion_score in emotions_detected.items():
                         if emotion in profile.short_term_state:
-                            actual_change = score * impact_score * state_multipliers[state_type]
-                            observed_mult = actual_change / expected
-                            weighted_mult_sum += observed_mult * score
-                            weight_sum += score
-                    if weight_sum > 0:
-                        avg_observed_mult = weighted_mult_sum / weight_sum
-                        old_mult = profile.impact_multipliers[age_category][state_type]
+                            actual_state_change = emotion_score * impact_score * state_multipliers[state_type]
+                            observed_multiplier = actual_state_change / expected_impact
+                            weighted_multiplier_sum += observed_multiplier * emotion_score
+                            emotion_weight_sum += emotion_score
+                    if emotion_weight_sum > 0:
+                        average_observed_multiplier = weighted_multiplier_sum / emotion_weight_sum
+                        previous_multiplier = profile.impact_multipliers[age_category][state_type]
                         profile.impact_multipliers[age_category][state_type] = (
-                            alpha_m * avg_observed_mult + (1 - alpha_m) * old_mult
+                            multiplier_learning_rate * average_observed_multiplier 
+                            + (1 - multiplier_learning_rate) * previous_multiplier
                         )
         
         # Update behavior_alpha (Parameter 10)
@@ -726,20 +736,26 @@ class EmotionalStateOrchestrator:
         # (z-score) with emotion intensity. High z × high intensity suggests
         # typing speed is a meaningful emotional signal for this user.
         if writing_time > 0:
-            speed = len(message) / writing_time
-            mu = ImpactCalculator.typing_speed_mean
-            sigma = max(ImpactCalculator.typing_speed_std, 0.1)
-            z = abs((speed - mu) / sigma)
-            correlation_proxy = min(1.0, z * emotion_intensity)
-            alpha_b = get_effective_alpha(0.10, profile.message_count)
-            profile.behavior_alpha = alpha_b * (0.5 * correlation_proxy) + (1 - alpha_b) * profile.behavior_alpha
+            current_typing_speed = len(message) / writing_time
+            baseline_mean = ImpactCalculator.typing_speed_mean
+            baseline_std = max(ImpactCalculator.typing_speed_std, 0.1)
+            typing_speed_z_score = abs((current_typing_speed - baseline_mean) / baseline_std)
+            typing_emotion_correlation = min(1.0, typing_speed_z_score * emotion_intensity)
+            behavior_learning_rate = get_effective_alpha(0.10, profile.message_count)
+            profile.behavior_alpha = (
+                behavior_learning_rate * (0.5 * typing_emotion_correlation) 
+                + (1 - behavior_learning_rate) * profile.behavior_alpha
+            )
         
         # Update similarity_threshold (Parameter 14)
         # Only update when there are actual repetitions to avoid driving toward 0
-        avg_sim = repetition_info.get('average_similarity', 0.0)
-        if avg_sim > 0:
-            alpha_theta = get_effective_alpha(0.10, profile.message_count)
-            profile.similarity_threshold = alpha_theta * avg_sim + (1 - alpha_theta) * profile.similarity_threshold
+        average_similarity = repetition_info.get('average_similarity', 0.0)
+        if average_similarity > 0:
+            similarity_learning_rate = get_effective_alpha(0.10, profile.message_count)
+            profile.similarity_threshold = (
+                similarity_learning_rate * average_similarity 
+                + (1 - similarity_learning_rate) * profile.similarity_threshold
+            )
             profile.similarity_threshold = max(0.1, min(0.4, profile.similarity_threshold))
         
         # ==============================================================

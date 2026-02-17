@@ -399,20 +399,22 @@ class TemporalExtractor:
             return self._empty_result(message)
         
         try:
-            time_phrases = self.extract_time_phrases(message)
-            parsed_results = [self.parse_time_phrase(p) for p in time_phrases]
+            detected_time_phrases = self.extract_time_phrases(message)
+            parsed_temporal_results = [self.parse_time_phrase(phrase) for phrase in detected_time_phrases]
 
-            if parsed_results:
-                valid = [r for r in parsed_results if r.parsed_date is not None]
-                overall_confidence = (sum(r.confidence for r in valid) / len(valid)) if valid else 0.0
+            if parsed_temporal_results:
+                successfully_parsed = [result for result in parsed_temporal_results if result.parsed_date is not None]
+                overall_confidence = (
+                    sum(result.confidence for result in successfully_parsed) / len(successfully_parsed)
+                ) if successfully_parsed else 0.0
             else:
                 overall_confidence = 0.0
 
-            output = {
+            extraction_output = {
                 "original_message": message,
                 "reference_time": self.reference_time.isoformat(),
-                "has_temporal_ref": len(time_phrases) > 0,
-                "phrases_found": [phrase.text for phrase in time_phrases],
+                "has_temporal_ref": len(detected_time_phrases) > 0,
+                "phrases_found": [phrase.text for phrase in detected_time_phrases],
                 "time_phrases_detected": [
                     {
                         "text": phrase.text,
@@ -421,21 +423,21 @@ class TemporalExtractor:
                         "type": phrase.pattern_type,
                         "language": phrase.language
                     }
-                    for phrase in time_phrases
+                    for phrase in detected_time_phrases
                 ],
-                "parsed_dates": [r.to_dict() for r in parsed_results],
+                "parsed_dates": [result.to_dict() for result in parsed_temporal_results],
                 "summary": {
-                    "total_phrases_found": len(time_phrases),
-                    "successfully_parsed": len([r for r in parsed_results if r.parsed_date]),
+                    "total_phrases_found": len(detected_time_phrases),
+                    "successfully_parsed": len([result for result in parsed_temporal_results if result.parsed_date]),
                     "overall_confidence": round(overall_confidence, 2),
-                    "has_temporal_reference": len(time_phrases) > 0
+                    "has_temporal_reference": len(detected_time_phrases) > 0
                 }
             }
 
-            return output
+            return extraction_output
         
-        except Exception as e:
-            print(f"⚠️  Error processing message: {e}")
+        except Exception as error:
+            print(f"⚠️  Error processing message: {error}")
             return self._empty_result(message)
 
     def extract_time_phrases(self, message: str) -> List[TimePhrase]:
@@ -451,34 +453,34 @@ class TemporalExtractor:
         if not message:
             return []
         
-        phrases = []
+        extracted_phrases = []
 
         try:
-            for patterns, pattern_type, language in TemporalPatternRegistry.get_all_patterns():
-                for pattern_tuple in patterns:
-                    pattern = pattern_tuple[0] if isinstance(pattern_tuple, tuple) else pattern_tuple
+            for pattern_list, pattern_type, language in TemporalPatternRegistry.get_all_patterns():
+                for pattern_tuple in pattern_list:
+                    regex_pattern = pattern_tuple[0] if isinstance(pattern_tuple, tuple) else pattern_tuple
                     
                     try:
-                        matches = re.finditer(pattern, message, re.IGNORECASE)
-                        for match in matches:
-                            context = self._get_context_window(message, match.start(), match.end())
+                        regex_matches = re.finditer(regex_pattern, message, re.IGNORECASE)
+                        for match in regex_matches:
+                            context_window = self._get_context_window(message, match.start(), match.end())
                             
-                            phrases.append(TimePhrase(
+                            extracted_phrases.append(TimePhrase(
                                 text=match.group(0),
                                 start_pos=match.start(),
                                 end_pos=match.end(),
                                 pattern_type=pattern_type,
                                 language=language,
-                                context_window=context
+                                context_window=context_window
                             ))
-                    except re.error as e:
-                        print(f"⚠️  Regex error with pattern {pattern}: {e}")
+                    except re.error as regex_error:
+                        print(f"⚠️  Regex error with pattern {regex_pattern}: {regex_error}")
                         continue
 
-            return self._deduplicate_phrases(phrases)
+            return self._deduplicate_phrases(extracted_phrases)
         
-        except Exception as e:
-            print(f"⚠️  Error extracting phrases: {e}")
+        except Exception as error:
+            print(f"⚠️  Error extracting phrases: {error}")
             return []
 
     def parse_time_phrase(self, phrase: TimePhrase) -> ParsedTemporal:
@@ -572,21 +574,21 @@ class TemporalExtractor:
             return []
 
         # Sort by start position, then by length (descending)
-        phrases.sort(key=lambda x: (x.start_pos, -(x.end_pos - x.start_pos)))
-        result = []
+        phrases.sort(key=lambda phrase_item: (phrase_item.start_pos, -(phrase_item.end_pos - phrase_item.start_pos)))
+        deduplicated_phrases = []
 
-        for phrase in phrases:
-            overlap = False
-            for selected in result:
+        for current_phrase in phrases:
+            has_overlap = False
+            for already_selected_phrase in deduplicated_phrases:
                 # Check if phrases overlap
-                if not (phrase.end_pos <= selected.start_pos or
-                        phrase.start_pos >= selected.end_pos):
-                    overlap = True
+                if not (current_phrase.end_pos <= already_selected_phrase.start_pos or
+                        current_phrase.start_pos >= already_selected_phrase.end_pos):
+                    has_overlap = True
                     break
-            if not overlap:
-                result.append(phrase)
+            if not has_overlap:
+                deduplicated_phrases.append(current_phrase)
 
-        return result
+        return deduplicated_phrases
 
     def _try_dateparser(self, text: str) -> Optional[datetime]:
         """
@@ -602,9 +604,9 @@ class TemporalExtractor:
             return None
         
         try:
-            parsed = dateparser.parse(text, settings=self.dateparser_settings)
-            return parsed
-        except Exception as e:
+            parsed_datetime = dateparser.parse(text, settings=self.dateparser_settings)
+            return parsed_datetime
+        except Exception as parsing_error:
             return None
 
     def _try_custom_parsing(self, phrase: TimePhrase) -> Optional[datetime]:
@@ -617,10 +619,10 @@ class TemporalExtractor:
         Returns:
             Parsed datetime or None
         """
-        text = phrase.text.lower()
+        phrase_text_lower = phrase.text.lower()
         
         # Simple day offsets
-        simple_map = {
+        simple_day_offset_map = {
             'yesterday': -1, 
             'today': 0, 
             'tomorrow': 1,
@@ -632,15 +634,15 @@ class TemporalExtractor:
             'day after tomorrow': 2,
         }
 
-        for word, offset in simple_map.items():
-            if word in text:
+        for keyword, day_offset in simple_day_offset_map.items():
+            if keyword in phrase_text_lower:
                 try:
-                    return self.reference_time + timedelta(days=offset)
+                    return self.reference_time + timedelta(days=day_offset)
                 except (ValueError, OverflowError):
                     return None
 
         # Period-based offsets
-        period_map = {
+        period_offset_map = {
             'last week': -7, 'last month': -30, 'last year': -365,
             'this week': 0, 'this month': 0, 'this year': 0,
             'next week': 7, 'next month': 30, 'next year': 365,
@@ -650,26 +652,26 @@ class TemporalExtractor:
             'previous week': -7, 'previous month': -30, 'previous year': -365,
         }
 
-        for period, offset in period_map.items():
-            if period in text:
+        for period_phrase, day_offset in period_offset_map.items():
+            if period_phrase in phrase_text_lower:
                 try:
-                    return self.reference_time + timedelta(days=offset)
+                    return self.reference_time + timedelta(days=day_offset)
                 except (ValueError, OverflowError):
                     return None
 
         # Quantity-based parsing (e.g., "5 days ago")
-        quantity_match = re.search(
+        quantity_pattern_match = re.search(
             r'(\d+)\s+(years?|months?|weeks?|days?|saal|sal|mahine?|hafte?|din)\s+(ago|pehle|pahle|back|baad)',
-            text
+            phrase_text_lower
         )
 
-        if quantity_match:
+        if quantity_pattern_match:
             try:
-                num = int(quantity_match.group(1))
-                unit = quantity_match.group(2).lower()
-                direction = quantity_match.group(3).lower()
+                numeric_quantity = int(quantity_pattern_match.group(1))
+                time_unit = quantity_pattern_match.group(2).lower()
+                direction_indicator = quantity_pattern_match.group(3).lower()
 
-                unit_days = {
+                time_unit_to_days = {
                     'year': 365, 'years': 365, 'yrs': 365, 'yr': 365,
                     'month': 30, 'months': 30, 'mos': 30, 'mo': 30,
                     'week': 7, 'weeks': 7, 'wks': 7, 'wk': 7,
@@ -680,22 +682,22 @@ class TemporalExtractor:
                     'din': 1,
                 }
 
-                if unit in unit_days:
-                    day_offset = int(num * unit_days[unit])
-                    if direction in ['ago', 'pehle', 'pahle', 'back']:
-                        return self.reference_time - timedelta(days=day_offset)
-                    elif direction in ['baad', 'after']:
-                        return self.reference_time + timedelta(days=day_offset)
+                if time_unit in time_unit_to_days:
+                    total_day_offset = int(numeric_quantity * time_unit_to_days[time_unit])
+                    if direction_indicator in ['ago', 'pehle', 'pahle', 'back']:
+                        return self.reference_time - timedelta(days=total_day_offset)
+                    elif direction_indicator in ['baad', 'after']:
+                        return self.reference_time + timedelta(days=total_day_offset)
             except (ValueError, OverflowError):
                 return None
 
         # Year extraction
-        year_match = re.search(r'(19\d{2}|20\d{2})', text)
-        if year_match and phrase.pattern_type == "absolute":
+        year_pattern_match = re.search(r'(19\d{2}|20\d{2})', phrase_text_lower)
+        if year_pattern_match and phrase.pattern_type == "absolute":
             try:
-                year = int(year_match.group(1))
-                if 1900 <= year <= 2100:  # Sanity check
-                    return datetime(year, 1, 1)
+                extracted_year = int(year_pattern_match.group(1))
+                if 1900 <= extracted_year <= 2100:  # Sanity check
+                    return datetime(extracted_year, 1, 1)
             except (ValueError, OverflowError):
                 return None
 
@@ -711,33 +713,33 @@ class TemporalExtractor:
         Returns:
             Estimated datetime or None
         """
-        text = phrase.text.lower()
+        phrase_text_lower = phrase.text.lower()
 
         try:
             # Long time ago
-            if re.search(r'long\s+time', text):
-                if 'very' in text:
+            if re.search(r'long\s+time', phrase_text_lower):
+                if 'very' in phrase_text_lower:
                     return self.reference_time - timedelta(days=1095)  # ~3 years
                 return self.reference_time - timedelta(days=730)  # ~2 years
             
             # Childhood references
-            if re.search(r'when\s+i\s+was\s+(young|a\s+kid|a\s+child|small|little)', text):
+            if re.search(r'when\s+i\s+was\s+(young|a\s+kid|a\s+child|small|little)', phrase_text_lower):
                 return self.reference_time - timedelta(days=7300)  # ~20 years
             
             # Years back
-            if re.search(r'years?\s+back', text):
+            if re.search(r'years?\s+back', phrase_text_lower):
                 return self.reference_time - timedelta(days=1825)  # ~5 years
             
             # Ages ago
-            if re.search(r'ages?\s+ago', text):
+            if re.search(r'ages?\s+ago', phrase_text_lower):
                 return self.reference_time - timedelta(days=2555)  # ~7 years
             
             # Recently
-            if 'recently' in text:
+            if 'recently' in phrase_text_lower:
                 return self.reference_time - timedelta(days=7)  # 1 week
             
             # Soon
-            if 'soon' in text:
+            if 'soon' in phrase_text_lower:
                 return self.reference_time + timedelta(days=7)  # 1 week
         
         except (ValueError, OverflowError):
@@ -783,38 +785,38 @@ class TemporalExtractor:
             ParsedTemporal object
         """
         try:
-            time_gap_days = (self.reference_time - parsed_date).days
-            age_category = self._classify_age(time_gap_days)
-            confidence = self._calculate_confidence(phrase, parsed_date, parse_method)
+            time_gap_in_days = (self.reference_time - parsed_date).days
+            temporal_age_category = self._classify_age(time_gap_in_days)
+            parsing_confidence_score = self._calculate_confidence(phrase, parsed_date, parse_method)
 
             return ParsedTemporal(
                 phrase=phrase.text,
                 parsed_date=parsed_date,
-                time_gap_days=time_gap_days,
-                age_category=age_category,
-                confidence=confidence,
+                time_gap_days=time_gap_in_days,
+                age_category=temporal_age_category,
+                confidence=parsing_confidence_score,
                 parse_method=parse_method,
-                days_ago=time_gap_days
+                days_ago=time_gap_in_days
             )
-        except Exception as e:
-            print(f"⚠️  Error creating parsed temporal: {e}")
+        except Exception as creation_error:
+            print(f"⚠️  Error creating parsed temporal: {creation_error}")
             return self._create_failed_temporal(phrase)
 
-    def _classify_age(self, gap: int) -> str:
+    def _classify_age(self, gap_in_days: int) -> str:
         """
         Classify temporal distance
         
         Args:
-            gap: Days between reference and event
+            gap_in_days: Days between reference and event
         
         Returns:
             Age category string
         """
-        if gap < 0:
+        if gap_in_days < 0:
             return AgeCategory.FUTURE.value
-        elif gap <= 30:
+        elif gap_in_days <= 30:
             return AgeCategory.RECENT.value
-        elif gap <= 365:
+        elif gap_in_days <= 365:
             return AgeCategory.MEDIUM.value
         else:
             return AgeCategory.DISTANT.value
@@ -836,40 +838,40 @@ class TemporalExtractor:
         Returns:
             Confidence score [0.0, 1.0]
         """
-        base_confidence = 0.5
+        confidence_score = 0.5
 
         # Pattern type contribution
         if phrase.pattern_type == "absolute":
-            base_confidence += 0.35
+            confidence_score += 0.35
         elif phrase.pattern_type == "relative":
-            base_confidence += 0.25
+            confidence_score += 0.25
         elif phrase.pattern_type == "vague":
-            base_confidence -= 0.2
+            confidence_score -= 0.2
 
         # Parse method contribution
-        method_confidence = {
+        parse_method_confidence_bonus = {
             "ambiguity_resolver + tense_analysis": 0.15,
             "dateparser": 0.2,
             "regex+custom": 0.15,
             "vague_heuristic": 0.0,
             "failed": -0.5
         }
-        base_confidence += method_confidence.get(parse_method, 0.1)
+        confidence_score += parse_method_confidence_bonus.get(parse_method, 0.1)
 
         # Specific indicators boost confidence
         if re.search(r'\d{4}', phrase.text):  # Year present
-            base_confidence += 0.2
+            confidence_score += 0.2
         elif re.search(r'\d+', phrase.text):  # Any number present
-            base_confidence += 0.1
+            confidence_score += 0.1
 
         # Language clarity
         if phrase.language == 'en':
-            base_confidence += 0.05
+            confidence_score += 0.05
         elif phrase.language in ['hi', 'hinglish']:
-            base_confidence += 0.02
+            confidence_score += 0.02
 
         # Ensure within bounds
-        return max(0.0, min(1.0, base_confidence))
+        return max(0.0, min(1.0, confidence_score))
 
 
 # ==========================================================

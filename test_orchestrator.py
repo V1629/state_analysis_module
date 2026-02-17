@@ -144,66 +144,66 @@ def display_emotions(emotions_dict: dict, top_n: int = 5):
         print("   No emotions detected")
         return
     
-    sorted_emotions = sorted(
+    emotions_sorted_by_score = sorted(
         emotions_dict.items(),
-        key=lambda x: x[1],
+        key=lambda emotion_item: emotion_item[1],
         reverse=True
     )
     
-    for rank, (emotion, score) in enumerate(sorted_emotions[:top_n], 1):
-        bar = "█" * int(score * 25)
-        print(f"   {rank}. {emotion:20s} │ {bar:25s} │ {score:.4f}")
+    for display_rank, (emotion_name, emotion_score) in enumerate(emotions_sorted_by_score[:top_n], 1):
+        visual_bar = "█" * int(emotion_score * 25)
+        print(f"   {display_rank}. {emotion_name:20s} │ {visual_bar:25s} │ {emotion_score:.4f}")
 
 
-def display_temporal_references(temp_ref: dict):
+def display_temporal_references(temporal_ref_data: dict):
     """Display temporal references found in message"""
-    if not temp_ref or not temp_ref.get('has_temporal_ref'):
+    if not temporal_ref_data or not temporal_ref_data.get('has_temporal_ref'):
         print("   No temporal references detected")
         return
     
-    print(f"   Phrases found: {temp_ref.get('phrases_found', [])}")
+    print(f"   Phrases found: {temporal_ref_data.get('phrases_found', [])}")
     
-    parsed_dates = temp_ref.get('parsed_dates', [])
-    if parsed_dates:
-        for parsed in parsed_dates[:3]:  # Show top 3
-            print(f"\n   • {parsed.get('phrase', 'N/A')}")
-            print(f"     Category: {parsed.get('age_category', 'unknown')}", end="")
-            print(f" | Confidence: {parsed.get('confidence', 0.0):.2f}")
+    parsed_date_results = temporal_ref_data.get('parsed_dates', [])
+    if parsed_date_results:
+        for parsed_item in parsed_date_results[:3]:  # Show top 3
+            print(f"\n   • {parsed_item.get('phrase', 'N/A')}")
+            print(f"     Category: {parsed_item.get('age_category', 'unknown')}", end="")
+            print(f" | Confidence: {parsed_item.get('confidence', 0.0):.2f}")
 
 
 def display_current_states(profile: UserProfile):
     """Display current emotional states for all time periods"""
     print(f"\n💤 CURRENT EMOTIONAL STATE:")
     
-    states = profile.get_all_states_with_top_emotions(top_n=2)
+    all_states_with_emotions = profile.get_all_states_with_top_emotions(top_n=2)
     
-    for state_type in ['short_term', 'mid_term', 'long_term']:
-        icon = "⚡" if state_type == "short_term" else ("📈" if state_type == "mid_term" else "🏛️")
-        emotions = states.get(state_type, [])
+    for temporal_state_type in ['short_term', 'mid_term', 'long_term']:
+        state_icon = "⚡" if temporal_state_type == "short_term" else ("📈" if temporal_state_type == "mid_term" else "🏛️")
+        state_emotions = all_states_with_emotions.get(temporal_state_type, [])
         
-        if not profile.is_state_activated(state_type):
-            print(f"\n   {icon} {state_type.upper():12s}: ⏳ Not activated")
-        elif emotions and len(emotions) > 0 and emotions[0][0] != "N/A":
-            print(f"\n   {icon} {state_type.upper():12s}: {emotions[0][0]} ({emotions[0][1]:.4f})")
-            if len(emotions) > 1 and emotions[1][0] != "N/A":
-                print(f"      Secondary: {emotions[1][0]} ({emotions[1][1]:.4f})")
+        if not profile.is_state_activated(temporal_state_type):
+            print(f"\n   {state_icon} {temporal_state_type.upper():12s}: ⏳ Not activated")
+        elif state_emotions and len(state_emotions) > 0 and state_emotions[0][0] != "N/A":
+            print(f"\n   {state_icon} {temporal_state_type.upper():12s}: {state_emotions[0][0]} ({state_emotions[0][1]:.4f})")
+            if len(state_emotions) > 1 and state_emotions[1][0] != "N/A":
+                print(f"      Secondary: {state_emotions[1][0]} ({state_emotions[1][1]:.4f})")
         else:
-            print(f"\n   {icon} {state_type.upper():12s}: No emotions yet")
+            print(f"\n   {state_icon} {temporal_state_type.upper():12s}: No emotions yet")
 
 
 def display_activation_status(profile: UserProfile):
     """Display state activation status"""
     print(f"\n🔓 STATE ACTIVATION STATUS:")
     
-    activation_info = profile.get_state_activation_info()
+    all_activation_info = profile.get_state_activation_info()
     
-    for state_type in ['short_term', 'mid_term', 'long_term']:
-        info = activation_info[state_type]
-        status = "✅ ACTIVE" if info['is_active'] else "⏳ INACTIVE"
+    for temporal_state_type in ['short_term', 'mid_term', 'long_term']:
+        state_info = all_activation_info[temporal_state_type]
+        activation_status_text = "✅ ACTIVE" if state_info['is_active'] else "⏳ INACTIVE"
         
-        icon = "⚡" if state_type == "short_term" else ("📈" if state_type == "mid_term" else "🏛️")
+        state_icon = "⚡" if temporal_state_type == "short_term" else ("📈" if temporal_state_type == "mid_term" else "🏛️")
         
-        print(f"\n   {icon} {state_type.upper():12s}: {status}")
+        print(f"\n   {state_icon} {temporal_state_type.upper():12s}: {activation_status_text}")
         print(f"      Days: {profile.profile_age_days} | Messages: {profile.message_count}")
 
 
@@ -217,68 +217,68 @@ def display_frequency_analysis(profile: UserProfile):
     print("📊 EMOTION FREQUENCY ANALYSIS")
     print("="*100)
     
-    top_emotions = profile.get_top_emotions_by_frequency(top_n=10)
+    top_emotions_by_frequency = profile.get_top_emotions_by_frequency(top_n=10)
     
     print(f"\nAnalyzing {len(profile.message_history)} messages...\n")
     print(f"{'Rank':<6} {'Emotion':<20} {'Avg Score':<15} {'Frequency':<15}")
     print("-" * 100)
     
-    if top_emotions:
-        max_freq = max([f[2] for f in top_emotions])
-        for rank, (emotion, avg_score, frequency) in enumerate(top_emotions, 1):
-            bar = "█" * int(frequency / max_freq * 30) if max_freq > 0 else ""
-            print(f"{rank:<6} {emotion:<20} {avg_score:<15.4f} {frequency:<15} {bar}")
+    if top_emotions_by_frequency:
+        max_frequency_value = max([freq_data[2] for freq_data in top_emotions_by_frequency])
+        for display_rank, (emotion_name, average_score, occurrence_frequency) in enumerate(top_emotions_by_frequency, 1):
+            visual_bar = "█" * int(occurrence_frequency / max_frequency_value * 30) if max_frequency_value > 0 else ""
+            print(f"{display_rank:<6} {emotion_name:<20} {average_score:<15.4f} {occurrence_frequency:<15} {visual_bar}")
     else:
         print("No emotion data available yet")
     
     print("\n" + "="*100 + "\n")
 
 
-def log_to_excel(logger, profile: UserProfile, analysis, message: str):
+def log_to_excel(excel_logger, profile: UserProfile, analysis, message: str):
     """Log chat data to Excel file"""
-    if not logger:
+    if not excel_logger:
         return
     
     try:
         # Get detected emotions
         if analysis.emotions_detected:
-            top_detected = max(analysis.emotions_detected.items(), key=lambda x: x[1])
-            detected_emotion = top_detected[0]
-            detected_score = top_detected[1]
+            highest_scoring_emotion = max(analysis.emotions_detected.items(), key=lambda emotion_item: emotion_item[1])
+            detected_emotion_name = highest_scoring_emotion[0]
+            detected_emotion_score = highest_scoring_emotion[1]
         else:
-            detected_emotion = ""
-            detected_score = 0.0
+            detected_emotion_name = ""
+            detected_emotion_score = 0.0
         
         # Current state (from current message)
-        log_data_current = {
-            'short_term': [(detected_emotion, detected_score)] if detected_emotion else [],
-            'mid_term': [(detected_emotion, detected_score)] if detected_emotion else [],
-            'long_term': [(detected_emotion, detected_score)] if detected_emotion else [],
+        current_message_state = {
+            'short_term': [(detected_emotion_name, detected_emotion_score)] if detected_emotion_name else [],
+            'mid_term': [(detected_emotion_name, detected_emotion_score)] if detected_emotion_name else [],
+            'long_term': [(detected_emotion_name, detected_emotion_score)] if detected_emotion_name else [],
         }
         
         # Profile state (from accumulated profile)
-        log_data_profile = {
+        accumulated_profile_state = {
             'short_term': profile.get_top_emotions_or_placeholder('short_term', 1),
             'mid_term': profile.get_top_emotions_or_placeholder('mid_term', 1),
             'long_term': profile.get_top_emotions_or_placeholder('long_term', 1),
         }
         
         # Get activation info
-        activation_info = profile.get_state_activation_info()
+        state_activation_info = profile.get_state_activation_info()
         
         # Log to Excel
-        logger.log_chat(
+        excel_logger.log_chat(
             message=message,
             impact_score=analysis.impact_score,
-            current_state=log_data_current,
-            profile_state=log_data_profile,
-            activation_status=activation_info,
+            current_state=current_message_state,
+            profile_state=accumulated_profile_state,
+            activation_status=state_activation_info,
             profile_age_days=profile.profile_age_days,
             message_count=profile.message_count
         )
         print(f"\n✅ Logged to chat_logs.xlsx")
-    except Exception as log_error:
-        print(f"\n⚠️  Logging failed: {log_error}")
+    except Exception as logging_error:
+        print(f"\n⚠️  Logging failed: {logging_error}")
 
 
 
@@ -300,69 +300,69 @@ print("• Type 'history' to see emotion frequency analysis")
 print("• Type 'states' to see current activation status")
 print("• Type 'exit' to quit\n")
 
-message_count = 0
-user_id = "test_user"
+total_messages_processed = 0
+current_user_id = "test_user"
 
 while True:
     try:
         # Measure input time
-        start_time = time.perf_counter()
-        command = input("💬 You: ").strip()
-        end_time = time.perf_counter()
+        input_start_time = time.perf_counter()
+        user_command = input("💬 You: ").strip()
+        input_end_time = time.perf_counter()
         
-        if not command:
+        if not user_command:
             continue
         
         # Handle commands
-        if command.lower() == 'exit':
+        if user_command.lower() == 'exit':
             print("\n👋 Goodbye!\n")
             break
         
-        if command.lower() == 'profile':
+        if user_command.lower() == 'profile':
             # Get profile from orchestrator's user_profiles dict
-            profile = orchestrator.user_profiles.get(user_id)
-            if profile:
-                profile.display_profile(top_n=5)
+            user_profile = orchestrator.user_profiles.get(current_user_id)
+            if user_profile:
+                user_profile.display_profile(top_n=5)
             else:
                 print("⚠️  No profile yet. Send a message first.\n")
             continue
         
-        if command.lower() == 'history':
-            profile = orchestrator.user_profiles.get(user_id)
-            if profile:
-                display_frequency_analysis(profile)
+        if user_command.lower() == 'history':
+            user_profile = orchestrator.user_profiles.get(current_user_id)
+            if user_profile:
+                display_frequency_analysis(user_profile)
             else:
                 print("⚠️  No profile yet. Send a message first.\n")
             continue
         
-        if command.lower() == 'states':
-            profile = orchestrator.user_profiles.get(user_id)
-            if profile:
-                display_activation_status(profile)
-                display_current_states(profile)
+        if user_command.lower() == 'states':
+            user_profile = orchestrator.user_profiles.get(current_user_id)
+            if user_profile:
+                display_activation_status(user_profile)
+                display_current_states(user_profile)
                 print()
             else:
                 print("⚠️  No profile yet. Send a message first.\n")
             continue
         
         # Process message
-        message_count += 1
-        writing_time = end_time - start_time
+        total_messages_processed += 1
+        message_writing_time = input_end_time - input_start_time
         
         print(f"\n{'─'*100}")
-        print(f"Message #{message_count}")
+        print(f"Message #{total_messages_processed}")
         print(f"{'─'*100}\n")
         
         # Call orchestrator to process message
-        analysis = orchestrator.process_user_message(
-            user_id=user_id,
-            message=command,
+        analysis_result = orchestrator.process_user_message(
+            user_id=current_user_id,
+            message=user_command,
             reference_date=datetime.now(),
-            writing_time=writing_time
+            writing_time=message_writing_time
         )
         
         # Critical check: ensure analysis is not None
-        if analysis is None:
+        if analysis_result is None:
             print("❌ ERROR: orchestrator.process_user_message() returned None!")
             print("This should not happen after our initial check.")
             print("Please check your orchestrator.py implementation.")
@@ -374,40 +374,40 @@ while True:
         
         # 1. EMOTIONS DETECTED
         print("😊 EMOTIONS DETECTED:")
-        display_emotions(analysis.emotions_detected, top_n=5)
+        display_emotions(analysis_result.emotions_detected, top_n=5)
         
         # 2. TEMPORAL REFERENCES
         print("\n⏰ TEMPORAL REFERENCES:")
-        display_temporal_references(analysis.temporal_references)
+        display_temporal_references(analysis_result.temporal_references)
         
         # 3. WRITING TIME
-        print(f"\n⌨️  Writing time: {writing_time:.4f} seconds")
+        print(f"\n⌨️  Writing time: {message_writing_time:.4f} seconds")
         
         # 4. IMPACT SCORE
-        print(f"\n💥 IMPACT SCORE: {analysis.impact_score:.4f}", end="")
-        if analysis.impact_score > 0.8:
+        print(f"\n💥 IMPACT SCORE: {analysis_result.impact_score:.4f}", end="")
+        if analysis_result.impact_score > 0.8:
             print(" 🔴 HIGH")
-        elif analysis.impact_score > 0.4:
+        elif analysis_result.impact_score > 0.4:
             print(" 🟡 MEDIUM")
         else:
             print(" 🟢 LOW")
         
         # 5. ANALYSIS SUMMARY
-        if hasattr(analysis, 'analysis_summary') and analysis.analysis_summary:
-            print(f"\n📌 Summary: {analysis.analysis_summary}")
+        if hasattr(analysis_result, 'analysis_summary') and analysis_result.analysis_summary:
+            print(f"\n📌 Summary: {analysis_result.analysis_summary}")
         
         # 6. GET PROFILE
-        profile = orchestrator.user_profiles.get(user_id)
+        user_profile = orchestrator.user_profiles.get(current_user_id)
         
-        if profile:
+        if user_profile:
             # 7. STATE ACTIVATION STATUS
-            display_activation_status(profile)
+            display_activation_status(user_profile)
             
             # 8. CURRENT EMOTIONAL STATE
-            display_current_states(profile)
+            display_current_states(user_profile)
             
             # 9. LOG TO EXCEL
-            log_to_excel(logger, profile, analysis, command)
+            log_to_excel(logger, user_profile, analysis_result, user_command)
         else:
             print("\n⚠️  Profile not created properly")
         
@@ -416,8 +416,8 @@ while True:
     except KeyboardInterrupt:
         print("\n\n👋 Interrupted. Goodbye!\n")
         break
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}\n")
+    except Exception as processing_error:
+        print(f"\n❌ ERROR: {processing_error}\n")
         import traceback
         traceback.print_exc()
         print()

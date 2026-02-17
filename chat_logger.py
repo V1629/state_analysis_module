@@ -30,12 +30,12 @@ class ChatLogger:
     def ensure_workbook(self):
         """Create Excel file if it doesn't exist"""
         if not os.path.exists(self.file_path):
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "Chat Logs"
+            workbook = openpyxl.Workbook()
+            worksheet = workbook.active
+            worksheet.title = "Chat Logs"
             
             # Set up headers
-            headers = [
+            column_headers = [
                 "Timestamp",
                 "Message",
                 "Impact Score",
@@ -60,29 +60,29 @@ class ChatLogger:
                 "Message_Count",
             ]
             
-            ws.append(headers)
+            worksheet.append(column_headers)
             
             # Style headers
-            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-            header_font = Font(bold=True, color="FFFFFF")
+            header_fill_color = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font_style = Font(bold=True, color="FFFFFF")
             
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            for header_cell in worksheet[1]:
+                header_cell.fill = header_fill_color
+                header_cell.font = header_font_style
+                header_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             
             # Set column widths
-            ws.column_dimensions["A"].width = 25  # Timestamp
-            ws.column_dimensions["B"].width = 45  # Message
-            ws.column_dimensions["C"].width = 15  # Impact Score
+            worksheet.column_dimensions["A"].width = 25  # Timestamp
+            worksheet.column_dimensions["B"].width = 45  # Message
+            worksheet.column_dimensions["C"].width = 15  # Impact Score
             
-            for col in range(4, 18):
-                ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+            for column_index in range(4, 18):
+                worksheet.column_dimensions[openpyxl.utils.get_column_letter(column_index)].width = 18
             
             # Set row height for header
-            ws.row_dimensions[1].height = 30
+            worksheet.row_dimensions[1].height = 30
             
-            wb.save(self.file_path)
+            workbook.save(self.file_path)
 
     def log_chat(
         self,
@@ -108,46 +108,46 @@ class ChatLogger:
             profile_age_days: Age of profile in days
             message_count: Total messages processed
         """
-        wb = openpyxl.load_workbook(self.file_path)
-        ws = wb.active
+        workbook = openpyxl.load_workbook(self.file_path)
+        worksheet = workbook.active
         
         # Prepare row data
-        row_data = [
+        row_data_values = [
             datetime.now().isoformat(),
             message,
             round(impact_score, 4),
         ]
         
         # Add current chat top emotion (1 for each state)
-        for state_type in ['short_term', 'mid_term', 'long_term']:
-            emotion_data = self._extract_top_emotion(current_state.get(state_type, []))
-            row_data.extend(emotion_data)
+        for temporal_state_type in ['short_term', 'mid_term', 'long_term']:
+            top_emotion_data = self._extract_top_emotion(current_state.get(temporal_state_type, []))
+            row_data_values.extend(top_emotion_data)
         
         # Add profile top emotion (1 for each state)
-        for state_type in ['short_term', 'mid_term', 'long_term']:
-            emotion_data = self._extract_top_emotion(profile_state.get(state_type, []))
-            row_data.extend(emotion_data)
+        for temporal_state_type in ['short_term', 'mid_term', 'long_term']:
+            top_emotion_data = self._extract_top_emotion(profile_state.get(temporal_state_type, []))
+            row_data_values.extend(top_emotion_data)
         
         # Add state activation status
-        mt_status = self._get_activation_status('mid_term', activation_status)
-        lt_status = self._get_activation_status('long_term', activation_status)
+        mid_term_activation_status = self._get_activation_status('mid_term', activation_status)
+        long_term_activation_status = self._get_activation_status('long_term', activation_status)
         
-        row_data.extend([
-            mt_status,
-            lt_status,
+        row_data_values.extend([
+            mid_term_activation_status,
+            long_term_activation_status,
             profile_age_days,
             message_count
         ])
         
         # Append row
-        ws.append(row_data)
+        worksheet.append(row_data_values)
         
         # Style the new row
-        current_row = ws.max_row
-        for col in range(1, len(row_data) + 1):
-            cell = ws.cell(row=current_row, column=col)
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            cell.border = Border(
+        current_row_number = worksheet.max_row
+        for column_index in range(1, len(row_data_values) + 1):
+            current_cell = worksheet.cell(row=current_row_number, column=column_index)
+            current_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            current_cell.border = Border(
                 left=Side(style='thin'),
                 right=Side(style='thin'),
                 top=Side(style='thin'),
@@ -155,21 +155,21 @@ class ChatLogger:
             )
             
             # Color code N/A cells
-            if cell.value == "N/A":
-                cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                cell.font = Font(color="9C0006")
-            elif cell.value in ["✅ ACTIVE", "⏳ INACTIVE"]:
-                if cell.value == "✅ ACTIVE":
-                    cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                    cell.font = Font(color="006100")
+            if current_cell.value == "N/A":
+                current_cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+                current_cell.font = Font(color="9C0006")
+            elif current_cell.value in ["✅ ACTIVE", "⏳ INACTIVE"]:
+                if current_cell.value == "✅ ACTIVE":
+                    current_cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                    current_cell.font = Font(color="006100")
                 else:
-                    cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                    cell.font = Font(color="9C6500")
+                    current_cell.fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                    current_cell.font = Font(color="9C6500")
         
         # Set row height
-        ws.row_dimensions[current_row].height = 25
+        worksheet.row_dimensions[current_row_number].height = 25
         
-        wb.save(self.file_path)
+        workbook.save(self.file_path)
 
     @staticmethod
     def _extract_top_emotion(emotion_list: list) -> list:

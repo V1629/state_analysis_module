@@ -55,23 +55,25 @@ def classify_emotions(text: str) -> Dict[str, float]:
         return {}
     
     try:
-        result = client.text_classification(
+        classification_result = client.text_classification(
             text,
             model=MODEL_NAME,
         )
         
-        if not result:
+        if not classification_result:
             return {}
         
         # Convert list to dictionary
-        emotions_dict = {}
-        for item in result:
-            emotions_dict[item['label']] = item['score']
+        emotions_with_scores = {}
+        for emotion_item in classification_result:
+            emotion_name = emotion_item['label']
+            emotion_probability = emotion_item['score']
+            emotions_with_scores[emotion_name] = emotion_probability
         
-        return emotions_dict
+        return emotions_with_scores
     
-    except Exception as e:
-        print(f"❌ Error in emotion classification: {e}")
+    except Exception as error:
+        print(f"❌ Error in emotion classification: {error}")
         return {}
 
 
@@ -87,19 +89,20 @@ def get_top_emotions(text: str, top_n: int = 5) -> Dict[str, float]:
         Dict of top emotions sorted by score descending
     """
     try:
-        emotions = classify_emotions(text)
+        all_emotions = classify_emotions(text)
         
-        if not emotions:
+        if not all_emotions:
             return {}
         
         # Sort by score descending
-        sorted_emotions = sorted(emotions.items(), key=lambda x: x[1], reverse=True)
+        sorted_emotion_pairs = sorted(all_emotions.items(), key=lambda pair: pair[1], reverse=True)
         
-        # Return as dict
-        return {k: v for k, v in sorted_emotions[:top_n]}
+        # Return as dict with only top N emotions
+        top_emotions = {emotion_name: emotion_score for emotion_name, emotion_score in sorted_emotion_pairs[:top_n]}
+        return top_emotions
     
-    except Exception as e:
-        print(f"❌ Error getting top emotions: {e}")
+    except Exception as error:
+        print(f"❌ Error getting top emotions: {error}")
         return {}
 
 
@@ -121,23 +124,23 @@ if __name__ == "__main__":
             user_input = input("📝 Enter text: ").strip()
 
             if user_input.lower() == "exit":
-                print("\n�� Goodbye!\n")
+                print("\n👋 Goodbye!\n")
                 break
 
             if not user_input:
                 print("⚠️  Please enter some text.\n")
                 continue
 
-            emotions = classify_emotions(user_input)
+            detected_emotions = classify_emotions(user_input)
 
-            if emotions:
+            if detected_emotions:
                 # Sort emotions by score (descending)
-                sorted_emotions = sorted(emotions.items(), key=lambda x: x[1], reverse=True)
+                sorted_emotion_pairs = sorted(detected_emotions.items(), key=lambda pair: pair[1], reverse=True)
 
                 print("\n🔎 Emotion Predictions:")
-                for emotion, score in sorted_emotions[:5]:  # Top 5 emotions
-                    bar = "█" * int(score * 20)
-                    print(f"   {emotion:20s} │ {bar:20s} │ {score:.4f}")
+                for emotion_name, emotion_score in sorted_emotion_pairs[:5]:  # Top 5 emotions
+                    visual_bar = "█" * int(emotion_score * 20)
+                    print(f"   {emotion_name:20s} │ {visual_bar:20s} │ {emotion_score:.4f}")
             else:
                 print("⚠️  No emotions detected.")
 
@@ -146,6 +149,6 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("\n\n👋 Interrupted. Goodbye!\n")
             break
-        except Exception as e:
-            print(f"❌ Error: {str(e)}")
+        except Exception as error:
+            print(f"❌ Error: {str(error)}")
             print("Please try again.\n")

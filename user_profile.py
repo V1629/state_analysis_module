@@ -70,9 +70,22 @@ INITIAL_WEIGHTS = {
 }
 
 
-def get_effective_alpha(base_alpha: float, message_count: int, K: int = 200) -> float:
-    """Calculate adaptive learning rate based on profile maturity"""
-    return base_alpha / (1 + message_count / K)
+def get_effective_alpha(base_learning_rate: float, message_count: int, decay_constant: int = 200) -> float:
+    """
+    Calculate adaptive learning rate based on profile maturity.
+    
+    As more messages are processed, the learning rate decreases,
+    making the profile more stable over time.
+    
+    Args:
+        base_learning_rate: Starting learning rate (e.g., 0.15)
+        message_count: Number of messages processed so far
+        decay_constant: Controls how fast the rate decays (default 200)
+    
+    Returns:
+        Effective learning rate that decreases with message count
+    """
+    return base_learning_rate / (1 + message_count / decay_constant)
 
 
 # ==========================================================
@@ -302,35 +315,44 @@ class UserProfile:
             })
             
             # ===== EMA-BASED STATE UPDATES =====
-            alpha_st = get_effective_alpha(0.30, self.message_count)
-            alpha_mt = get_effective_alpha(0.125, self.message_count)
-            alpha_lt = get_effective_alpha(0.02, self.message_count)
+            short_term_learning_rate = get_effective_alpha(0.30, self.message_count)
+            mid_term_learning_rate = get_effective_alpha(0.125, self.message_count)
+            long_term_learning_rate = get_effective_alpha(0.02, self.message_count)
 
             for emotion in ALL_EMOTIONS:
-                impact_val = 0.0
+                short_term_impact_value = 0.0
                 if emotion in state_updates:
-                    impact_val = state_updates[emotion].get('short_term', 0.0)
+                    short_term_impact_value = state_updates[emotion].get('short_term', 0.0)
 
                 # Short-term EMA (always active)
                 if self.is_state_activated('short_term'):
-                    old_val = self.short_term_state.get(emotion, 0.0)
-                    self.short_term_state[emotion] = alpha_st * impact_val + (1 - alpha_st) * old_val
+                    previous_short_term_value = self.short_term_state.get(emotion, 0.0)
+                    self.short_term_state[emotion] = (
+                        short_term_learning_rate * short_term_impact_value 
+                        + (1 - short_term_learning_rate) * previous_short_term_value
+                    )
 
                 # Mid-term EMA
-                mt_impact = 0.0
+                mid_term_impact_value = 0.0
                 if emotion in state_updates:
-                    mt_impact = state_updates[emotion].get('mid_term', 0.0)
+                    mid_term_impact_value = state_updates[emotion].get('mid_term', 0.0)
                 if self.is_state_activated('mid_term'):
-                    old_val = self.mid_term_state.get(emotion, 0.0)
-                    self.mid_term_state[emotion] = alpha_mt * mt_impact + (1 - alpha_mt) * old_val
+                    previous_mid_term_value = self.mid_term_state.get(emotion, 0.0)
+                    self.mid_term_state[emotion] = (
+                        mid_term_learning_rate * mid_term_impact_value 
+                        + (1 - mid_term_learning_rate) * previous_mid_term_value
+                    )
 
                 # Long-term EMA
-                lt_impact = 0.0
+                long_term_impact_value = 0.0
                 if emotion in state_updates:
-                    lt_impact = state_updates[emotion].get('long_term', 0.0)
+                    long_term_impact_value = state_updates[emotion].get('long_term', 0.0)
                 if self.is_state_activated('long_term'):
-                    old_val = self.long_term_state.get(emotion, 0.0)
-                    self.long_term_state[emotion] = alpha_lt * lt_impact + (1 - alpha_lt) * old_val
+                    previous_long_term_value = self.long_term_state.get(emotion, 0.0)
+                    self.long_term_state[emotion] = (
+                        long_term_learning_rate * long_term_impact_value 
+                        + (1 - long_term_learning_rate) * previous_long_term_value
+                    )
 
             # Update adaptive weights every message using EMA
             self._update_adaptive_weights_ema(emotions, impact_score)
@@ -458,79 +480,82 @@ class UserProfile:
 
             # Use actual computed factors from orchestrator if available,
             # otherwise derive from available data
-            factors = getattr(self, '_last_computed_factors', None)
-            if factors:
-                ei = factors.get('emotion_intensity', max(emotions.values()))
-                rw = factors.get('recency_weight', 0.5)
-                rb = factors.get('recurrence_boost', 0.5)
-                tc = factors.get('temporal_confidence', 0.5)
+            computed_factors = getattr(self, '_last_computed_factors', None)
+            if computed_factors:
+                emotion_intensity_value = computed_factors.get('emotion_intensity', max(emotions.values()))
+                recency_weight_value = computed_factors.get('recency_weight', 0.5)
+                recurrence_boost_value = computed_factors.get('recurrence_boost', 0.5)
+                temporal_confidence_value = computed_factors.get('temporal_confidence', 0.5)
             else:
-                ei = max(emotions.values()) if emotions else 0.0
-                rw = 0.5
-                rb = 0.5
-                tc = 0.5
+                emotion_intensity_value = max(emotions.values()) if emotions else 0.0
+                recency_weight_value = 0.5
+                recurrence_boost_value = 0.5
+                temporal_confidence_value = 0.5
 
-            total_signal = ei + rw + rb + tc
-            if total_signal <= 0:
+            total_signal_strength = emotion_intensity_value + recency_weight_value + recurrence_boost_value + temporal_confidence_value
+            if total_signal_strength <= 0:
                 return
 
-            observed = {
-                'emotion_intensity': ei / total_signal,
-                'recency_weight': rw / total_signal,
-                'recurrence_boost': rb / total_signal,
-                'temporal_confidence': tc / total_signal,
+            observed_weight_proportions = {
+                'emotion_intensity': emotion_intensity_value / total_signal_strength,
+                'recency_weight': recency_weight_value / total_signal_strength,
+                'recurrence_boost': recurrence_boost_value / total_signal_strength,
+                'temporal_confidence': temporal_confidence_value / total_signal_strength,
             }
 
-            # EMA base alphas for each weight
-            alpha_map = {
+            # EMA base alphas (learning rates) for each weight type
+            base_learning_rates = {
                 'emotion_intensity': 0.12,
                 'recency_weight': 0.15,
                 'recurrence_boost': 0.25,
                 'temporal_confidence': 0.20,
             }
 
-            old_weights = self.adaptive_weights.copy()
+            previous_weights = self.adaptive_weights.copy()
 
-            for key in self.adaptive_weights:
-                base_alpha = alpha_map.get(key, 0.15)
-                alpha = get_effective_alpha(base_alpha, self.message_count)
-                self.adaptive_weights[key] = alpha * observed[key] + (1 - alpha) * self.adaptive_weights[key]
+            for weight_key in self.adaptive_weights:
+                base_learning_rate = base_learning_rates.get(weight_key, 0.15)
+                effective_learning_rate = get_effective_alpha(base_learning_rate, self.message_count)
+                self.adaptive_weights[weight_key] = (
+                    effective_learning_rate * observed_weight_proportions[weight_key] 
+                    + (1 - effective_learning_rate) * self.adaptive_weights[weight_key]
+                )
 
             # Normalize weights to sum to 1.0
-            total_weight = sum(self.adaptive_weights.values())
-            if total_weight > 0:
-                self.adaptive_weights = {k: v / total_weight for k, v in self.adaptive_weights.items()}
+            total_weight_sum = sum(self.adaptive_weights.values())
+            if total_weight_sum > 0:
+                self.adaptive_weights = {key: value / total_weight_sum for key, value in self.adaptive_weights.items()}
 
-            # Track history
+            # Track weight change history
             weight_changed = any(
-                abs(self.adaptive_weights.get(k, 0) - old_weights.get(k, 0)) > 0.001
-                for k in old_weights
+                abs(self.adaptive_weights.get(key, 0) - previous_weights.get(key, 0)) > 0.001
+                for key in previous_weights
             )
             if weight_changed:
                 self.weight_adjustment_history.append({
                     'timestamp': datetime.now().isoformat(),
                     'message_count': self.message_count,
-                    'old_weights': old_weights,
+                    'old_weights': previous_weights,
                     'new_weights': self.adaptive_weights.copy(),
-                    'reason': self._get_adjustment_reason(old_weights, self.adaptive_weights)
+                    'reason': self._get_adjustment_reason(previous_weights, self.adaptive_weights)
                 })
         except Exception as e:
             print(f"⚠️  Error updating adaptive weights via EMA: {e}")
 
     @staticmethod
-    def _get_adjustment_reason(old: dict, new: dict) -> str:
+    def _get_adjustment_reason(old_weights: dict, new_weights: dict) -> str:
         """Explain why weights changed"""
         try:
-            reasons = []
+            change_descriptions = []
             
-            for key in old:
-                if key in new:
-                    diff = new[key] - old[key]
-                    if abs(diff) > 0.01:
-                        direction = "increased" if diff > 0 else "decreased"
-                        reasons.append(f"{key}: {direction} by {abs(diff):.3f}")
+            for weight_key in old_weights:
+                if weight_key in new_weights:
+                    weight_difference = new_weights[weight_key] - old_weights[weight_key]
+                    if abs(weight_difference) > 0.01:
+                        change_direction = "increased" if weight_difference > 0 else "decreased"
+                        change_descriptions.append(f"{weight_key}: {change_direction} by {abs(weight_difference):.3f}")
             
-            return " | ".join(reasons) if reasons else "No significant changes"
+            return " | ".join(change_descriptions) if change_descriptions else "No significant changes"
         except Exception as e:
             return f"Error: {e}"
 
