@@ -2,3 +2,5 @@ files/venv
 .env
 __pycache__/
 *.pyc
+files/__pycache__
+files/user_profiles
