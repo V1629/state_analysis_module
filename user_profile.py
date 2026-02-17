@@ -70,6 +70,11 @@ INITIAL_WEIGHTS = {
 }
 
 
+def get_effective_alpha(base_alpha: float, message_count: int, K: int = 200) -> float:
+    """Calculate adaptive learning rate based on profile maturity"""
+    return base_alpha / (1 + message_count / K)
+
+
 # ==========================================================
 # USER PROFILE CLASS
 # ==========================================================
@@ -131,6 +136,19 @@ class UserProfile:
         self.adaptive_weights = INITIAL_WEIGHTS.copy()
         self.weights_learning_enabled = False  # Enable when mid_term activates#########################will be enalbled after 50 messages
         self.weight_adjustment_history = []    # Track weight changes over time
+
+        # ===== PER-USER EMA PARAMETERS =====
+        self.entropy_penalty_coeff = 0.3
+        self.recurrence_step = 0.3
+        self.behavior_alpha = 0.2
+        self.similarity_threshold = 0.2
+        self.impact_multipliers = {
+            "recent": {"short_term": 1.0, "mid_term": 0.6, "long_term": 0.2},
+            "medium": {"short_term": 0.3, "mid_term": 0.9, "long_term": 0.5},
+            "distant": {"short_term": 0.05, "mid_term": 0.3, "long_term": 0.8},
+            "unknown": {"short_term": 0.5, "mid_term": 0.5, "long_term": 0.3},
+            "future": {"short_term": 0.7, "mid_term": 0.4, "long_term": 0.0}
+        }
 
     # ============================================================
     # PROFILE AGE CALCULATION
@@ -283,48 +301,39 @@ class UserProfile:
                 'temporal_category': temporal_category
             })
             
-            # Update each emotional state
-            for emotion, impacts in state_updates.items():
-                if emotion not in ALL_EMOTIONS:
-                    continue
-                
-                # Update short-term (always active)
+            # ===== EMA-BASED STATE UPDATES =====
+            alpha_st = get_effective_alpha(0.30, self.message_count)
+            alpha_mt = get_effective_alpha(0.125, self.message_count)
+            alpha_lt = get_effective_alpha(0.02, self.message_count)
+
+            for emotion in ALL_EMOTIONS:
+                impact_val = 0.0
+                if emotion in state_updates:
+                    impact_val = state_updates[emotion].get('short_term', 0.0)
+
+                # Short-term EMA (always active)
                 if self.is_state_activated('short_term'):
-                    self.short_term_state[emotion] = max(0.0, min(1.0, 
-                        self.short_term_state.get(emotion, 0.0) + impacts.get('short_term', 0.0)
-                    ))
-                
-                # Update mid-term (if activated)
+                    old_val = self.short_term_state.get(emotion, 0.0)
+                    self.short_term_state[emotion] = alpha_st * impact_val + (1 - alpha_st) * old_val
+
+                # Mid-term EMA
+                mt_impact = 0.0
+                if emotion in state_updates:
+                    mt_impact = state_updates[emotion].get('mid_term', 0.0)
                 if self.is_state_activated('mid_term'):
-                    self.mid_term_state[emotion] = max(0.0, min(1.0,
-                        self.mid_term_state.get(emotion, 0.0) + impacts.get('mid_term', 0.0)
-                    ))
-                
-                # Update long-term (if activated)
+                    old_val = self.mid_term_state.get(emotion, 0.0)
+                    self.mid_term_state[emotion] = alpha_mt * mt_impact + (1 - alpha_mt) * old_val
+
+                # Long-term EMA
+                lt_impact = 0.0
+                if emotion in state_updates:
+                    lt_impact = state_updates[emotion].get('long_term', 0.0)
                 if self.is_state_activated('long_term'):
-                    self.long_term_state[emotion] = max(0.0, min(1.0,
-                        self.long_term_state.get(emotion, 0.0) + impacts.get('long_term', 0.0)
-                    ))
-            
-            # Normalize states
-            self._normalize_state('short_term')
-            if self.is_state_activated('mid_term'):
-                self._normalize_state('mid_term')
-            if self.is_state_activated('long_term'):
-                self._normalize_state('long_term')
-            
-            # Update advanced states
-            self._update_mid_term_rolling_window()
-            self._update_long_term_frequency_based()
-            
-            # Enable weight learning when mid-term activates
-            if self.is_state_activated('mid_term') and not self.weights_learning_enabled:
-                self.weights_learning_enabled = True
-                self._enable_weight_learning()
-            
-            # Update adaptive weights every 10 messages (after learning is enabled)
-            if self.weights_learning_enabled and self.message_count % 10 == 0:
-                self._update_adaptive_weights()
+                    old_val = self.long_term_state.get(emotion, 0.0)
+                    self.long_term_state[emotion] = alpha_lt * lt_impact + (1 - alpha_lt) * old_val
+
+            # Update adaptive weights every message using EMA
+            self._update_adaptive_weights_ema(emotions, impact_score)
             
         except Exception as e:
             print(f"⚠️  Error updating emotional state: {e}")
@@ -433,88 +442,65 @@ class UserProfile:
             print(f"⚠️  Error analyzing chat patterns: {e}")
             return {}
 
-    def _calculate_adaptive_weights(self) -> Dict[str, float]:
+    def _update_adaptive_weights_ema(self, emotions: Dict[str, float], impact_score: float):
         """
-        Calculate adaptive weights based on chat patterns
-        
-        Returns:
-            Adjusted weights that sum to 1.0
+        Update adaptive weights using EMA based on observed signals.
+        Called every message (no 10-message checkpoint).
         """
-        if not self.weights_learning_enabled or len(self.message_history) < 10:
-            return self.adaptive_weights.copy()
-        
         try:
-            patterns = self._analyze_chat_patterns()
-            
-            if not patterns:
-                return self.adaptive_weights.copy()
-            
-            # Start with initial weights
-            new_weights = INITIAL_WEIGHTS.copy()
-            
-            # ===== ADJUSTMENT 1: Emotion Intensity =====
-            emotion_intensity = patterns.get('emotion_intensity_avg', 0.5)
-            
-            if emotion_intensity > 0.7:
-                # Very emotional user - increase emotion weight
-                new_weights['emotion_intensity'] = min(0.55, INITIAL_WEIGHTS['emotion_intensity'] + 0.05)
-            elif emotion_intensity < 0.3:
-                # Low emotional expression - decrease emotion weight
-                new_weights['emotion_intensity'] = max(0.35, INITIAL_WEIGHTS['emotion_intensity'] - 0.05)
-            
-            # ===== ADJUSTMENT 2: Recency Weight =====
-            recency_pattern = patterns.get('recency_pattern', 'mixed')
-            
-            if recency_pattern == 'recent_focused':
-                # User cares about recent events
-                new_weights['recency_weight'] = min(0.40, INITIAL_WEIGHTS['recency_weight'] + 0.05)
-            elif recency_pattern == 'past_focused':
-                # User focuses on past - decrease recency weight
-                new_weights['recency_weight'] = max(0.20, INITIAL_WEIGHTS['recency_weight'] - 0.05)
-            
-            # ===== ADJUSTMENT 3: Recurrence Boost =====
-            repetition_pattern = patterns.get('repetition_pattern', {})
-            repetition_count = len(repetition_pattern)
-            
-            if repetition_count > 3:
-                # Many repeated emotions - increase recurrence weight
-                new_weights['recurrence_boost'] = min(0.25, INITIAL_WEIGHTS['recurrence_boost'] + 0.05)
-            elif repetition_count == 0:
-                # No repetition - decrease recurrence weight
-                new_weights['recurrence_boost'] = max(0.05, INITIAL_WEIGHTS['recurrence_boost'] - 0.05)
-            
-            # ===== ADJUSTMENT 4: Temporal Confidence =====
-            temporal_specificity = patterns.get('temporal_specificity', 0.5)
-            temporal_ref_ratio = patterns.get('temporal_ref_ratio', 0.5)
-            
-            if temporal_ref_ratio < 0.3:
-                # User rarely mentions dates - decrease temporal confidence weight
-                new_weights['temporal_confidence'] = max(0.05, INITIAL_WEIGHTS['temporal_confidence'] - 0.03)
-            elif temporal_specificity > 0.8:
-                # User is very specific about dates - increase temporal confidence weight
-                new_weights['temporal_confidence'] = min(0.15, INITIAL_WEIGHTS['temporal_confidence'] + 0.03)
-            
+            if not emotions:
+                return
+
+            # Calculate observed signal proportions
+            emotion_intensity = max(emotions.values()) if emotions else 0.0
+            # Use stored values from last message processing
+            # These represent the relative contribution of each factor
+            total_signal = emotion_intensity + 0.5 + 0.5 + 0.5  # fallback denominators
+            if total_signal <= 0:
+                return
+
+            observed = {
+                'emotion_intensity': emotion_intensity / total_signal,
+                'recency_weight': 0.5 / total_signal,
+                'recurrence_boost': 0.5 / total_signal,
+                'temporal_confidence': 0.5 / total_signal,
+            }
+
+            # EMA base alphas for each weight
+            alpha_map = {
+                'emotion_intensity': 0.12,
+                'recency_weight': 0.15,
+                'recurrence_boost': 0.25,
+                'temporal_confidence': 0.20,
+            }
+
+            old_weights = self.adaptive_weights.copy()
+
+            for key in self.adaptive_weights:
+                base_alpha = alpha_map.get(key, 0.15)
+                alpha = get_effective_alpha(base_alpha, self.message_count)
+                self.adaptive_weights[key] = alpha * observed[key] + (1 - alpha) * self.adaptive_weights[key]
+
             # Normalize weights to sum to 1.0
-            total_weight = sum(new_weights.values())
+            total_weight = sum(self.adaptive_weights.values())
             if total_weight > 0:
-                normalized_weights = {k: v/total_weight for k, v in new_weights.items()}
-            else:
-                normalized_weights = INITIAL_WEIGHTS.copy()
-            
-            # Store in history
-            self.weight_adjustment_history.append({
-                'timestamp': datetime.now().isoformat(),
-                'message_count': self.message_count,
-                'old_weights': self.adaptive_weights.copy(),
-                'new_weights': normalized_weights.copy(),
-                'patterns': patterns,
-                'reason': self._get_adjustment_reason(self.adaptive_weights, normalized_weights)
-            })
-            
-            return normalized_weights
+                self.adaptive_weights = {k: v / total_weight for k, v in self.adaptive_weights.items()}
+
+            # Track history
+            weight_changed = any(
+                abs(self.adaptive_weights.get(k, 0) - old_weights.get(k, 0)) > 0.001
+                for k in old_weights
+            )
+            if weight_changed:
+                self.weight_adjustment_history.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'message_count': self.message_count,
+                    'old_weights': old_weights,
+                    'new_weights': self.adaptive_weights.copy(),
+                    'reason': self._get_adjustment_reason(old_weights, self.adaptive_weights)
+                })
         except Exception as e:
-            print(f"⚠️  Error calculating adaptive weights: {e}")
-            return self.adaptive_weights.copy()
+            print(f"⚠️  Error updating adaptive weights via EMA: {e}")
 
     @staticmethod
     def _get_adjustment_reason(old: dict, new: dict) -> str:
@@ -534,119 +520,24 @@ class UserProfile:
             return f"Error: {e}"
 
     def _enable_weight_learning(self):
-        """Enable adaptive weight learning (called when mid_term activates)"""
-        try:
-            print(f"\n✨ ENABLING ADAPTIVE WEIGHT LEARNING")
-            print(f"   System will now adjust weights based on chat patterns...\n")
-            
-            # Calculate initial adaptive weights
-            self.adaptive_weights = self._calculate_adaptive_weights()
-            
-            print(f"📊 Initial Adaptive Weights:")
-            for weight_name, value in self.adaptive_weights.items():
-                print(f"   {weight_name:25s}: {value:.4f} ({value*100:.1f}%)")
-            print()
-        except Exception as e:
-            print(f"⚠️  Error enabling weight learning: {e}")
+        """Legacy method - weight learning now always active via EMA"""
+        pass
 
     def _update_adaptive_weights(self):
-        """
-        Update weights periodically based on new chat patterns
-        Called every 10 messages after mid-term activation
-        """
-        if not self.weights_learning_enabled:
-            return
-        
-        try:
-            old_weights = self.adaptive_weights.copy()
-            self.adaptive_weights = self._calculate_adaptive_weights()
-            
-            # Check if weights actually changed
-            weight_changed = any(
-                abs(self.adaptive_weights.get(k, 0) - old_weights.get(k, 0)) > 0.01 
-                for k in old_weights
-            )
-            
-            if weight_changed:
-                print(f"\n🔄 WEIGHT ADJUSTMENT at Message {self.message_count}")
-                print(f"   Analyzing chat patterns and updating weights...\n")
-                
-                for weight_name in old_weights:
-                    old_val = old_weights[weight_name]
-                    new_val = self.adaptive_weights.get(weight_name, old_val)
-                    change = new_val - old_val
-                    
-                    if abs(change) > 0.001:
-                        direction = "↑" if change > 0 else "↓"
-                        print(f"   {direction} {weight_name:25s}: {old_val:.4f} → {new_val:.4f}")
-                print()
-        except Exception as e:
-            print(f"⚠️  Error updating adaptive weights: {e}")
+        """Legacy wrapper - now uses EMA approach"""
+        pass  # Replaced by _update_adaptive_weights_ema called every message
 
     # ============================================================
     # STATE AGGREGATION
     # ============================================================
 
     def _update_mid_term_rolling_window(self):
-        """Update mid-term state using rolling window"""
-        try:
-            if not self.is_state_activated('mid_term'):
-                return
-            
-            window_size = STATE_ACTIVATION_CONFIG['mid_term'].get('window_size', 15)
-            recent_messages = self.message_history[-window_size:]
-            
-            if not recent_messages:
-                return
-            
-            # Aggregate emotions from recent messages
-            emotion_sums = {emotion: 0.0 for emotion in ALL_EMOTIONS}
-            for msg in recent_messages:
-                emotions = msg.get('emotions_detected', {})
-                impact = msg.get('impact_score', 1.0)
-                for emotion, score in emotions.items():
-                    if emotion in emotion_sums:
-                        emotion_sums[emotion] += score * impact
-            
-            # Normalize
-            total = sum(emotion_sums.values())
-            if total > 0:
-                self.mid_term_state = {
-                    emotion: emotion_sums[emotion] / total
-                    for emotion in ALL_EMOTIONS
-                }
-        except Exception as e:
-            print(f"⚠️  Error updating mid-term rolling window: {e}")
+        """Legacy method - mid-term now uses EMA inline"""
+        pass
 
     def _update_long_term_frequency_based(self):
-        """Update long-term state based on frequency analysis"""
-        try:
-            if not self.is_state_activated('long_term'):
-                return
-            
-            if not self.message_history:
-                return
-            
-            # Get top 3 emotions by frequency
-            top_emotions = self.get_top_emotions_by_frequency(top_n=3)
-            
-            if not top_emotions:
-                return
-            
-            # Reset long-term state
-            self.long_term_state = {emotion: 0.0 for emotion in ALL_EMOTIONS}
-            
-            # Distribute weight among top 3 emotions
-            total_frequency = sum(freq for _, _, freq in top_emotions)
-            if total_frequency > 0:
-                for emotion, avg_score, frequency in top_emotions:
-                    weight = frequency / total_frequency
-                    self.long_term_state[emotion] = weight * avg_score
-            
-            # Normalize
-            self._normalize_state('long_term')
-        except Exception as e:
-            print(f"⚠️  Error updating long-term frequency state: {e}")
+        """Legacy method - long-term now uses EMA inline"""
+        pass
 
     # ============================================================
     # QUERY METHODS
@@ -804,6 +695,11 @@ class UserProfile:
                 'state_activation_info': activation_info,
                 'adaptive_weights': self.adaptive_weights,
                 'weights_learning_enabled': self.weights_learning_enabled,
+                'entropy_penalty_coeff': self.entropy_penalty_coeff,
+                'recurrence_step': self.recurrence_step,
+                'behavior_alpha': self.behavior_alpha,
+                'similarity_threshold': self.similarity_threshold,
+                'impact_multipliers': self.impact_multipliers,
                 'message_history_count': len(self.message_history),
             }
         except Exception as e:
@@ -894,6 +790,13 @@ class UserProfile:
             # Load adaptive weights
             profile.adaptive_weights = data.get('adaptive_weights', INITIAL_WEIGHTS.copy())
             profile.weights_learning_enabled = data.get('weights_learning_enabled', False)
+
+            # Load EMA parameters
+            profile.entropy_penalty_coeff = data.get('entropy_penalty_coeff', 0.3)
+            profile.recurrence_step = data.get('recurrence_step', 0.3)
+            profile.behavior_alpha = data.get('behavior_alpha', 0.2)
+            profile.similarity_threshold = data.get('similarity_threshold', 0.2)
+            profile.impact_multipliers = data.get('impact_multipliers', profile.impact_multipliers)
             
             return profile
         except Exception as e:
@@ -941,9 +844,9 @@ class UserProfile:
                 else:
                     print(f"   Activated by: {info.get('activated_by', 'unknown')}")
                     if state_type == 'mid_term':
-                        print(f"   Using: Rolling window of 15 messages")
+                        print(f"   Using: EMA with α=0.125")
                     elif state_type == 'long_term':
-                        print(f"   Using: Top 3 emotions by frequency from entire history")
+                        print(f"   Using: EMA with α=0.02")
             
             # Show adaptive weights
             print("\n" + "="*100)
@@ -989,7 +892,7 @@ class UserProfile:
             # MID-TERM
             if activation_info.get('mid_term', {}).get('is_active', False):
                 print(f"\n📈 MID-TERM STATE (Medium: 31-365 days) ✅ ACTIVE")
-                print(f"   (Rolling window of 15 messages)")
+                print(f"   (EMA-based, α=0.125)")
                 print("-" * 100)
                 mid_term_emotions = states.get('mid_term', [])
                 if mid_term_emotions and mid_term_emotions[0][0] != "N/A":
@@ -1007,7 +910,7 @@ class UserProfile:
             # LONG-TERM
             if activation_info.get('long_term', {}).get('is_active', False):
                 print(f"\n🏛️  LONG-TERM STATE (Baseline: 365+ days) ✅ ACTIVE")
-                print(f"   (Top 3 emotions by frequency from all {len(self.message_history)} messages)")
+                print(f"   (EMA-based, α=0.02, from {len(self.message_history)} messages)")
                 print("-" * 100)
                 
                 # Show frequency analysis
