@@ -446,24 +446,39 @@ class UserProfile:
         """
         Update adaptive weights using EMA based on observed signals.
         Called every message (no 10-message checkpoint).
+        
+        Uses actual factor values stored by the orchestrator in
+        self._last_computed_factors (if available) to calculate
+        observed signal proportions, ensuring weight adaptation
+        reflects real contributions rather than arbitrary fallbacks.
         """
         try:
             if not emotions:
                 return
 
-            # Calculate observed signal proportions
-            emotion_intensity = max(emotions.values()) if emotions else 0.0
-            # Use stored values from last message processing
-            # These represent the relative contribution of each factor
-            total_signal = emotion_intensity + 0.5 + 0.5 + 0.5  # fallback denominators
+            # Use actual computed factors from orchestrator if available,
+            # otherwise derive from available data
+            factors = getattr(self, '_last_computed_factors', None)
+            if factors:
+                ei = factors.get('emotion_intensity', max(emotions.values()))
+                rw = factors.get('recency_weight', 0.5)
+                rb = factors.get('recurrence_boost', 0.5)
+                tc = factors.get('temporal_confidence', 0.5)
+            else:
+                ei = max(emotions.values()) if emotions else 0.0
+                rw = 0.5
+                rb = 0.5
+                tc = 0.5
+
+            total_signal = ei + rw + rb + tc
             if total_signal <= 0:
                 return
 
             observed = {
-                'emotion_intensity': emotion_intensity / total_signal,
-                'recency_weight': 0.5 / total_signal,
-                'recurrence_boost': 0.5 / total_signal,
-                'temporal_confidence': 0.5 / total_signal,
+                'emotion_intensity': ei / total_signal,
+                'recency_weight': rw / total_signal,
+                'recurrence_boost': rb / total_signal,
+                'temporal_confidence': tc / total_signal,
             }
 
             # EMA base alphas for each weight

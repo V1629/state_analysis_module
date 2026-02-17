@@ -658,6 +658,15 @@ class EmotionalStateOrchestrator:
             
             state_updates[emotion] = weighted_impacts
         
+        # Store computed factors on profile for adaptive weight learning
+        normalized_recurrence = (recurrence_boost - 1.0) / 1.5
+        profile._last_computed_factors = {
+            'emotion_intensity': emotion_intensity,
+            'recency_weight': recency_weight,
+            'recurrence_boost': normalized_recurrence,
+            'temporal_confidence': temporal_confidence,
+        }
+        
         # Update profile with new emotional data
         profile.update_emotional_state(
             emotions=emotions_detected,
@@ -691,23 +700,31 @@ class EmotionalStateOrchestrator:
         profile._last_emotion_intensity = emotion_intensity
         
         # Update impact_multipliers (Parameter 9)
+        # Use weighted average across all detected emotions
         if age_category in profile.impact_multipliers:
             alpha_m = get_effective_alpha(0.08, profile.message_count)
             for state_type in ['short_term', 'mid_term', 'long_term']:
-                # Learn from observed state changes
                 expected = impact_score
                 if expected > 0:
+                    weighted_mult_sum = 0.0
+                    weight_sum = 0.0
                     for emotion, score in emotions_detected.items():
                         if emotion in profile.short_term_state:
                             actual_change = score * impact_score * state_multipliers[state_type]
-                            observed_mult = actual_change / expected if expected > 0 else state_multipliers[state_type]
-                            old_mult = profile.impact_multipliers[age_category][state_type]
-                            profile.impact_multipliers[age_category][state_type] = (
-                                alpha_m * observed_mult + (1 - alpha_m) * old_mult
-                            )
-                            break  # Use first emotion as representative
+                            observed_mult = actual_change / expected
+                            weighted_mult_sum += observed_mult * score
+                            weight_sum += score
+                    if weight_sum > 0:
+                        avg_observed_mult = weighted_mult_sum / weight_sum
+                        old_mult = profile.impact_multipliers[age_category][state_type]
+                        profile.impact_multipliers[age_category][state_type] = (
+                            alpha_m * avg_observed_mult + (1 - alpha_m) * old_mult
+                        )
         
         # Update behavior_alpha (Parameter 10)
+        # Correlation proxy: measures co-occurrence of typing speed deviation
+        # (z-score) with emotion intensity. High z × high intensity suggests
+        # typing speed is a meaningful emotional signal for this user.
         if writing_time > 0:
             speed = len(message) / writing_time
             mu = ImpactCalculator.typing_speed_mean
@@ -718,10 +735,12 @@ class EmotionalStateOrchestrator:
             profile.behavior_alpha = alpha_b * (0.5 * correlation_proxy) + (1 - alpha_b) * profile.behavior_alpha
         
         # Update similarity_threshold (Parameter 14)
+        # Only update when there are actual repetitions to avoid driving toward 0
         avg_sim = repetition_info.get('average_similarity', 0.0)
-        alpha_theta = get_effective_alpha(0.10, profile.message_count)
-        profile.similarity_threshold = alpha_theta * avg_sim + (1 - alpha_theta) * profile.similarity_threshold
-        profile.similarity_threshold = max(0.1, min(0.4, profile.similarity_threshold))
+        if avg_sim > 0:
+            alpha_theta = get_effective_alpha(0.10, profile.message_count)
+            profile.similarity_threshold = alpha_theta * avg_sim + (1 - alpha_theta) * profile.similarity_threshold
+            profile.similarity_threshold = max(0.1, min(0.4, profile.similarity_threshold))
         
         # ==============================================================
         # STEP 8: GENERATE ANALYSIS SUMMARY
