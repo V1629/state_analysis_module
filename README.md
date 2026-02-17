@@ -1,442 +1,285 @@
-# Temporal Reference Extractor
+# Emotional State Analysis Module
 
-A robust, production-ready Python module for extracting and analyzing temporal references from multilingual text (English, Hindi, and Hinglish).
+A real-time emotional state tracking system that analyzes user messages to detect emotions, extract temporal references, and build evolving emotional profiles across short-term, mid-term, and long-term time horizons.
 
-## Features
-
-✨ **Multilingual Support**
-- English: "3 years ago", "last week", "in 2020"
-- Hindi: "3 saal pehle", "pichle hafte", "kal"
-- Hinglish: "2 years pehle", "last month mein"
-
-🎯 **Smart Extraction**
-- Regex-based pattern matching with 40+ patterns
-- Automatic deduplication of overlapping matches
-- Multiple temporal references per message
-- Handles vague expressions with confidence scoring
-
-📊 **Structured Output**
-- Parsed datetime objects
-- Time gap calculation (days since incident)
-- Age categorization (recent/medium/distant)
-- Confidence scores (0.0 - 1.0)
-
-🚀 **Production Ready**
-- Modular, extensible architecture
-- FastAPI REST API included
-- Configurable thresholds and weights
-- Comprehensive test suite
-- Type hints throughout
+> Think of it as a system that **understands how you're feeling** — not just right now, but how your emotional state has been **shifting over time**.
 
 ---
 
-## Installation
+## What Does This Project Do?
+
+When a user sends a message like:
+
+```
+"Yaar 3 saal pehle dadi chali gayi thi, aaj bhi bahut yaad aati hai"
+```
+
+The system will:
+
+1. **Detect emotions** → `sadness (0.72)`, `grief (0.15)`, `love (0.08)`
+2. **Extract temporal references** → `"3 saal pehle"` → 1095 days ago (distant)
+3. **Calculate impact** → `0.85` (high — strong emotion + personal loss)
+4. **Update emotional profile** → Short-term, Mid-term, and Long-term states adjust via EMA (Exponential Moving Average)
+5. **Log everything** → Chat logs exported to Excel with full state tracking
+
+---
+
+##  Project Structure
+
+```
+files/
+├── orchestrator.py          # 🎯 Core engine — ties everything together
+├── emotional_detector.py    # 😊 Emotion detection via HuggingFace API
+├── temporal_extractor.py    # ⏰ Temporal reference extraction (EN/HI/Hinglish)
+├── user_profile.py          # 👤 User emotional profile with EMA-based state tracking
+├── chat_logger.py           # 📊 Excel logger for chat + emotional state
+├── test_orchestrator.py     # 🧪 Interactive test script (manual chat)
+├── auto_test.py             # 🤖 Automated test — sends 75 Hinglish messages
+├── test_ema.py              # ✅ Unit tests for EMA implementation
+├── requirements.txt         # 📦 Python dependencies
+├── .env                     # 🔑 HuggingFace API token (you create this)
+│
+├── architecture.md          # System architecture diagrams (Mermaid)
+├── EMA_approach.md          # EMA technical design document
+├── state_management.md      # State management flow diagrams
+├── user_flow.md             # User interaction flow diagram
+│
+├── user_profiles/           # 💾 Saved user profiles (JSON)
+└── chat_logs.xlsx           # 📋 Generated chat logs (auto-created)
+```
+
+---
+
+## ⚡ Quick Setup (5 minutes)
+
+### Prerequisites
+
+- Python 3.10+
+- A free [HuggingFace](https://huggingface.co/) account (for the emotion detection API)
+
+### Step 1 — Clone the repo
+
+```bash
+git clone https://github.com/V1629/state_analysis_module.git
+cd state_analysis_module
+```
+
+### Step 2 — Create a virtual environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate        # Linux / macOS
+# venv\Scripts\activate         # Windows
+```
+
+### Step 3 — Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
+### Step 4 — Set up your HuggingFace API token
 
----
-
-## Quick Start
-
-### Basic Usage
-
-```python
-from temporal_extractor import create_extractor
-
-# Initialize extractor
-extractor = create_extractor()
-
-# Process a message
-message = "I had surgery 3 years ago and follow-up last month"
-result = extractor.process_message(message)
-
-# Print results
-print(f"Found {result['summary']['total_phrases_found']} temporal references")
-for parsed in result['parsed_dates']:
-    print(f"  - {parsed['phrase']}: {parsed['time_gap_days']} days ago ({parsed['age_category']})")
-```
-
-**Output:**
-```
-Found 2 temporal references
-  - 3 years ago: 1095 days ago (distant)
-  - last month: 30 days ago (medium)
-```
-
-### Hindi/Hinglish Examples
-
-```python
-# Hindi
-result = extractor.process_message("Mujhe 2 saal pehle diabetes hua tha")
-
-# Hinglish
-result = extractor.process_message("Last week se pain hai")
-
-# Mixed
-result = extractor.process_message("3 years ago accident hua, phir 6 months pehle surgery")
-```
-
----
-
-## Output Format
-
-```json
-{
-  "original_message": "I had surgery 3 years ago",
-  "reference_time": "2024-02-10T10:00:00",
-  "time_phrases_detected": [
-    {
-      "text": "3 years ago",
-      "start": 14,
-      "end": 26,
-      "type": "relative",
-      "language": "en"
-    }
-  ],
-  "parsed_dates": [
-    {
-      "phrase": "3 years ago",
-      "parsed_date": "2021-02-10T10:00:00",
-      "time_gap_days": 1095,
-      "age_category": "distant",
-      "confidence": 0.9,
-      "parse_method": "dateparser"
-    }
-  ],
-  "summary": {
-    "total_phrases_found": 1,
-    "successfully_parsed": 1,
-    "overall_confidence": 0.9,
-    "has_temporal_reference": true
-  }
-}
-```
-
----
-
-## Advanced Features
-
-### Custom Reference Time
-
-```python
-from datetime import datetime
-
-# Analyze historical conversations
-reference_time = datetime(2023, 1, 1)
-extractor = create_extractor(reference_time=reference_time)
-
-result = extractor.process_message("6 months ago I had surgery")
-# Calculation based on 2023-01-01, not current time
-```
-
-### Configuration Presets
-
-```python
-from temporal_extractor import create_extractor
-from config import get_config
-
-# Healthcare-specific configuration
-config = get_config("healthcare")
-extractor = create_extractor()
-# Custom thresholds: recent=7 days, medium=90 days
-```
-
-### Batch Processing
-
-```python
-messages = [
-    "I had surgery 3 years ago",
-    "Last week se fever hai",
-    "2 saal pehle accident hua"
-]
-
-results = [extractor.process_message(msg) for msg in messages]
-```
-
----
-
-## Age Categories
-
-| Category | Time Range | Use Case |
-|----------|-----------|----------|
-| `recent` | 0-30 days | Active symptoms, ongoing treatment |
-| `medium` | 31-365 days | Recent medical history |
-| `distant` | > 365 days | Historical medical events |
-| `future` | Negative days | Scheduled appointments |
-| `unknown` | Parse failed | Vague or unparseable |
-
-**Customizable Thresholds:**
-```python
-from config import ExtractorConfig, AgeThresholds
-
-config = ExtractorConfig(
-    age_thresholds=AgeThresholds(
-        recent_days=7,   # 0-7 days
-        medium_days=90   # 8-90 days
-    )
-)
-```
-
----
-
-## Supported Patterns
-
-### English
-- **Relative:** "3 years ago", "last week", "yesterday", "couple of months ago"
-- **Absolute:** "in 2020", "May 2018", "15 August 2021", "summer of 2019"
-- **Vague:** "long time ago", "when I was young", "back then"
-
-### Hindi
-- **Relative:** "3 saal pehle", "pichle hafte", "kal", "do mahine pehle"
-- **Absolute:** "saal 2020", "2020 mein"
-- **Vague:** "bahut pehle", "jab main chhota tha"
-
-### Hinglish
-- "2 years pehle", "last month mein", "3 saal ago"
-
----
-
-## REST API
-
-### Start Server
+1. Go to [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+2. Create a new token (read access is enough)
+3. Create a `.env` file in the project root:
 
 ```bash
-python api_integration.py
+echo "hf_token=hf_YOUR_TOKEN_HERE" > .env
 ```
 
-Server runs at `http://localhost:8000`
-
-### API Endpoints
-
-#### POST `/extract`
-
-Extract temporal references from a single message.
-
-**Request:**
-```json
-{
-  "message": "I had surgery 3 years ago",
-  "reference_time": "2024-02-10T10:00:00"
-}
-```
-
-**Response:**
-```json
-{
-  "original_message": "I had surgery 3 years ago",
-  "reference_time": "2024-02-10T10:00:00",
-  "time_phrases_detected": [...],
-  "parsed_dates": [...],
-  "summary": {...}
-}
-```
-
-#### POST `/extract/batch`
-
-Batch process multiple messages.
-
-**Request:**
-```json
-{
-  "messages": [
-    "I had surgery 3 years ago",
-    "Last week se fever hai"
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "total_processed": 2,
-  "results": [...]
-}
-```
-
-### API Documentation
-
-Interactive API docs available at:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
----
-
-## Testing
-
-Run comprehensive test suite:
+### Step 5 — Run it!
 
 ```bash
-python test_temporal_extractor.py
+python test_orchestrator.py
 ```
 
-### Test Coverage
-
-- ✅ English temporal expressions
-- ✅ Hindi temporal expressions
-- ✅ Hinglish mixed expressions
-- ✅ Multiple temporal references
-- ✅ Edge cases (no reference, vague, future dates)
-- ✅ Confidence scoring
-- ✅ Age categorization
-- ✅ Custom reference time
+That's it. You'll see a `💬 You:` prompt — start chatting!
 
 ---
 
-## Production Deployment
+## 🚀 How to Use
 
-### Docker Deployment
-
-```dockerfile
-FROM python:3.10-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["uvicorn", "api_integration:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### Environment Variables
+### Option 1: Interactive Chat (Manual)
 
 ```bash
-# Optional configuration
-EXTRACTOR_CONFIG=healthcare  # default, healthcare, support
-REFERENCE_TIME_OVERRIDE=2024-01-01T00:00:00
+python test_orchestrator.py
 ```
 
-### Scaling Considerations
-
-1. **Singleton Pattern**: Initialize extractor once at startup
-2. **Caching**: Cache parsed results for identical messages
-3. **Batch Processing**: Use batch endpoint for bulk operations
-4. **Rate Limiting**: Implement rate limiting on API endpoints
-5. **Monitoring**: Track confidence scores and parse success rates
-
----
-
-## Architecture
+Type messages and see real-time analysis:
 
 ```
-temporal_extractor.py          # Core extraction engine
-├── TemporalPatternRegistry   # Regex pattern definitions
-├── TemporalExtractor          # Main processing logic
-├── TimePhrase                 # Detected phrase structure
-└── ParsedTemporal             # Parsed result structure
+💬 You: I'm really stressed about my exams next week
 
-config.py                      # Configuration presets
-api_integration.py             # FastAPI REST API
-test_temporal_extractor.py     # Test suite
+😊 EMOTIONS DETECTED:
+   1. nervousness           │ ████████████████          │ 0.6523
+   2. fear                  │ ████████                  │ 0.3210
+
+⏰ TEMPORAL REFERENCES:
+   Phrases found: ['next week']
+   • next week → Category: future | Confidence: 0.95
+
+💥 IMPACT SCORE: 0.7842 🟡 MEDIUM
 ```
 
----
+**Commands inside the chat:**
 
-## Extending the System
+| Command    | What it does                              |
+|------------|-------------------------------------------|
+| `profile`  | View your full emotional profile          |
+| `history`  | See emotion frequency analysis            |
+| `states`   | See short/mid/long-term activation status |
+| `exit`     | Quit the chat                             |
 
-### Add Custom Patterns
+### Option 2: Automated Test (75 Messages)
 
-```python
-from temporal_extractor import TemporalPatternRegistry
-
-# Add domain-specific patterns
-TemporalPatternRegistry.ENGLISH_RELATIVE.append(
-    r'\b(\d+)\s+(quarters?)\s+ago\b'
-)
+```bash
+python auto_test.py
 ```
 
-### Custom Confidence Calculation
+This sends 75 pre-written Hinglish messages that simulate a **realistic emotional journey**:
 
-```python
-from temporal_extractor import TemporalExtractor
+| Phase | Messages | Emotional State |
+|-------|----------|-----------------|
+| Casual Start | 1–10 | 😐 Neutral — just vibing |
+| Mild Stress | 11–20 | 😟 Work pressure creeping in |
+| Growing Doubt | 21–30 | 😰 Self-doubt, overthinking |
+| Emotional Low | 31–42 | 😢 Sadness, isolation, vulnerability |
+| Turning Point | 43–52 | 🌤️ Small positive moments |
+| Building Up | 53–63 | 😊 Improvement, momentum |
+| Feeling Strong | 64–75 | 💪 Gratitude, confidence, peace |
 
-class CustomExtractor(TemporalExtractor):
-    def _calculate_confidence(self, phrase, parsed_date):
-        # Your custom logic
-        confidence = super()._calculate_confidence(phrase, parsed_date)
-        
-        # Boost for medical keywords
-        if 'surgery' in phrase.text.lower():
-            confidence += 0.1
-        
-        return min(1.0, confidence)
+### Option 3: Run Unit Tests
+
+```bash
+pytest test_ema.py -v
 ```
 
 ---
 
-## Performance
+## 🔬 How It Works (Under the Hood)
 
-- **Extraction Speed:** ~5ms per message (single temporal reference)
-- **Batch Processing:** ~100 messages/second
-- **Memory Usage:** ~50MB base + 1KB per message
-- **Pattern Matching:** O(n) where n = message length
+### The Pipeline
+
+```
+User Message
+    │
+    ├──► Emotion Detection (HuggingFace multilingual_go_emotions)
+    │       → 27 emotions with probability scores
+    │
+    ├──► Temporal Extraction (Regex + dateparser)
+    │       → "3 years ago" → 1095 days, category: distant
+    │
+    ├──► Impact Calculation
+    │       → Weighted sum of: emotion intensity + recency + repetition + confidence
+    │
+    └──► Profile Update (EMA)
+            → Short-term state  (⚡ reactive, α=0.15)
+            → Mid-term state    (📈 moderate, rolling window of 15 messages)
+            → Long-term state   (🏛️ stable baseline, α=0.02)
+```
+
+### Emotional State Tracking (EMA)
+
+The system tracks emotions across **3 time horizons** using Exponential Moving Average:
+
+```
+State(t) = α × NewEmotion + (1 - α) × State(t-1)
+```
+
+| State | Activation | Learning Rate | Purpose |
+|-------|------------|---------------|---------|
+| **Short-term** ⚡ | From message 1 | α = 0.15 (fast) | Current mood |
+| **Mid-term** 📈 | After 14 days + 30 messages | Rolling window | Emotional trends |
+| **Long-term** 🏛️ | After 90 days + 50 messages | α = 0.02 (slow) | Personality baseline |
+
+### Supported Languages
+
+| Language | Example | Supported? |
+|----------|---------|------------|
+| English | "3 years ago", "last week" | ✅ |
+| Hindi | "3 saal pehle", "kal" | ✅ |
+| Hinglish | "last month mein", "2 years pehle" | ✅ |
 
 ---
 
-## Limitations
+## 📊 Output — Excel Logs
 
-1. **Context-free parsing:** Doesn't understand semantic context
-2. **Ambiguous dates:** "March" without year defaults to this/last March
-3. **Relative base:** "3 years ago" calculated from reference time, not message timestamp
-4. **Language detection:** Relies on pattern matching, not true language detection
-5. **Colloquialisms:** May miss region-specific slang or dialects
+Every message is automatically logged to `chat_logs.xlsx` with:
 
----
-
-## Troubleshooting
-
-### Issue: dateparser returns None
-
-**Solution:** Check if the phrase matches any custom patterns. Add custom parsing logic in `_try_custom_parsing()`.
-
-### Issue: Low confidence scores
-
-**Solution:** Adjust `ConfidenceWeights` in config.py to tune scoring.
-
-### Issue: Wrong age category
-
-**Solution:** Modify `AgeThresholds` in config.py for your domain.
-
-### Issue: Missing patterns
-
-**Solution:** Add regex patterns to `TemporalPatternRegistry` for your use case.
+| Column | Description |
+|--------|-------------|
+| Timestamp | When the message was sent |
+| Message | The user's message |
+| Impact Score | Calculated impact (0.0 – 1.0) |
+| Current ST/MT/LT Emotion | Detected emotion for this message |
+| Profile ST/MT/LT Emotion | Accumulated profile emotion |
+| MT/LT Status | Whether mid/long-term states are active |
+| Profile Age | Days since profile was created |
+| Message Count | Total messages processed |
 
 ---
 
-## Contributing
+## 🧩 Key Components
+
+### `emotional_detector.py`
+- Uses the [`AnasAlokla/multilingual_go_emotions`](https://huggingface.co/AnasAlokla/multilingual_go_emotions) model via HuggingFace Inference API
+- Detects **27 emotions** (joy, sadness, anger, fear, surprise, love, gratitude, etc.)
+- Supports English, Hindi, and Hinglish text
+
+### `temporal_extractor.py`
+- **40+ regex patterns** for temporal extraction across 3 languages
+- Parses relative dates ("3 years ago"), absolute dates ("May 2020"), and vague expressions ("bahut pehle")
+- Categorizes into: `recent` (0-30d), `medium` (31-365d), `distant` (365d+), `future`
+
+### `orchestrator.py`
+- The **brain** of the system — connects emotion detection + temporal extraction + profile updates
+- Calculates impact scores using: emotion intensity, recency weight, repetition boost, and temporal confidence
+- Handles adaptive weight learning and behavioral analysis
+
+### `user_profile.py`
+- Manages per-user emotional profiles with EMA-based state updates
+- Tracks 27 emotions across 3 time horizons
+- Persists profiles to JSON for continuity across sessions
+- Adaptive learning rate: α decreases as more data is collected (stabilizes over time)
+
+---
+
+## 📖 Documentation
+
+| Document | What it covers |
+|----------|---------------|
+| [`architecture.md`](architecture.md) | System architecture with Mermaid diagrams |
+| [`EMA_approach.md`](EMA_approach.md) | Full EMA technical design — all 14 parameter groups |
+| [`state_management.md`](state_management.md) | State management flow and classification logic |
+| [`user_flow.md`](user_flow.md) | End-to-end user interaction flow |
+
+---
+
+## 🛠️ Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `No module named 'huggingface_hub'` | Run `pip install -r requirements.txt` inside venv |
+| `HF_TOKEN environment variable not set` | Create a `.env` file with `hf_token=hf_YOUR_TOKEN` |
+| `dateparser not installed` warning | Run `pip install dateparser` (optional but recommended) |
+| Mid/Long-term states show "Not activated" | Send more messages — MT needs 30 msgs, LT needs 50 msgs |
+| `chat_logs.xlsx` not created | It auto-creates on first message; check write permissions |
+
+---
+
+## 📝 License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+## 🤝 Contributing
 
 Contributions welcome! Areas for improvement:
 
 - Additional language support (Urdu, Bengali, Tamil)
-- More sophisticated NLP-based parsing
-- Contextual understanding (e.g., "March" → which year?)
-- Fuzzy date handling ("about 2 years ago")
-- Timezone support
-
----
-
-## License
-
-MIT License - see LICENSE file for details
-
----
-
-## Support
-
-For issues, questions, or feature requests:
-- GitHub Issues: [your-repo]/issues
-- Email: support@example.com
-
----
-
-## Changelog
-
-### v1.0.0 (2024-02-10)
-- Initial release
-- Multilingual support (English, Hindi, Hinglish)
-- 40+ temporal patterns
-- REST API with FastAPI
-- Comprehensive test suite
+- More advanced NLP-based temporal parsing
+- Dashboard / web UI for visualizing emotional trends
+- Integration with conversational AI frameworks
+- Real-time WebSocket support
