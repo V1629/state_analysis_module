@@ -45,7 +45,7 @@ except ImportError as e:
 
 # Import emotional detector
 try:
-    from emotional_detector import classify_emotions, get_top_emotions
+    from emotional_detector import classify_emotions
     print("   ✅ emotional_detector imported")
 except ImportError as e:
     print(f"   ❌ Error importing emotional_detector: {e}")

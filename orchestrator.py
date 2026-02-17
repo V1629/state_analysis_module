@@ -794,37 +794,3 @@ class EmotionalStateOrchestrator:
             analysis_summary=analysis_summary,
             recurrence_count=incident_count
         )
-    
-
-
-
-
-    
-    # ==============================================================
-    # HELPER METHOD: GET USER PROFILE
-    # ==============================================================
-    
-    def get_user_profile(self, user_id: str) -> Optional[UserProfile]:
-        """
-        Get user profile by ID
-        
-        Args:
-            user_id: User identifier
-            
-        Returns:
-            UserProfile object or None if not found
-        """
-        return self.user_profiles.get(user_id)
-    
-    # ==============================================================
-    # HELPER METHOD: GET ALL USER IDS
-    # ==============================================================
-    
-    def get_all_user_ids(self) -> List[str]:
-        """
-        Get list of all user IDs with profiles
-        
-        Returns:
-            List of user IDs
-        """
-        return list(self.user_profiles.keys())

@@ -360,109 +360,9 @@ class UserProfile:
         except Exception as e:
             print(f"⚠️  Error updating emotional state: {e}")
 
-    def _normalize_state(self, state_type: str):
-        """Normalize emotional state to sum to 1.0"""
-        try:
-            if state_type == 'short_term':
-                state = self.short_term_state
-            elif state_type == 'mid_term':
-                state = self.mid_term_state
-            elif state_type == 'long_term':
-                state = self.long_term_state
-            else:
-                return
-            
-            total = sum(state.values())
-            if total > 0:
-                for emotion in state:
-                    state[emotion] = state[emotion] / total
-        except Exception as e:
-            print(f"⚠️  Error normalizing {state_type} state: {e}")
-
     # ============================================================
     # ADAPTIVE WEIGHT LEARNING SYSTEM
     # ============================================================
-
-    def _analyze_chat_patterns(self) -> Dict[str, Any]:
-        """
-        Analyze chat history to understand user's emotional patterns
-        
-        Returns:
-            Dictionary with pattern analysis results
-        """
-        if not self.message_history or len(self.message_history) < 10:
-            return {}
-        
-        try:
-            from collections import Counter
-            
-            emotion_frequency = Counter()
-            emotion_intensity_sum = 0.0
-            temporal_refs_count = 0
-            all_emotions_list = []
-            recent_count = 0
-            past_count = 0
-            
-            for msg_entry in self.message_history:
-                emotions = msg_entry.get('emotions_detected', {})
-                
-                # Collect emotions
-                for emotion, score in emotions.items():
-                    emotion_frequency[emotion] += 1
-                    emotion_intensity_sum += score
-                    all_emotions_list.append((emotion, score))
-                
-                # Track temporal references
-                temporal_cat = msg_entry.get('temporal_category', 'unknown')
-                if temporal_cat == 'recent':
-                    recent_count += 1
-                    temporal_refs_count += 1
-                elif temporal_cat in ['medium', 'distant']:
-                    past_count += 1
-                    temporal_refs_count += 1
-            
-            # Calculate averages
-            avg_emotion_intensity = emotion_intensity_sum / len(all_emotions_list) if all_emotions_list else 0.5
-            temporal_ref_ratio = temporal_refs_count / len(self.message_history) if self.message_history else 0.0
-            
-            # Analyze recency pattern
-            total_temporal = recent_count + past_count
-            if total_temporal == 0:
-                recency_pattern = 'no_temporal_data'
-            else:
-                recent_ratio = recent_count / total_temporal
-                if recent_ratio > 0.6:
-                    recency_pattern = 'recent_focused'
-                elif recent_ratio < 0.4:
-                    recency_pattern = 'past_focused'
-                else:
-                    recency_pattern = 'mixed'
-            
-            # Find dominant emotion
-            dominant_emotion = emotion_frequency.most_common(1)[0][0] if emotion_frequency else None
-            
-            # Analyze repetition patterns
-            repetition_pattern = {}
-            for emotion, freq in emotion_frequency.items():
-                if freq > 1:
-                    repetition_pattern[emotion] = freq
-            
-            # Temporal specificity (simplified - based on temporal ref ratio)
-            temporal_specificity = temporal_ref_ratio
-            
-            return {
-                'emotion_frequency': dict(emotion_frequency),
-                'emotion_intensity_avg': round(avg_emotion_intensity, 4),
-                'recency_pattern': recency_pattern,
-                'temporal_specificity': round(temporal_specificity, 4),
-                'repetition_pattern': repetition_pattern,
-                'dominant_emotion': dominant_emotion,
-                'temporal_ref_ratio': round(temporal_ref_ratio, 4),
-                'message_count': len(self.message_history)
-            }
-        except Exception as e:
-            print(f"⚠️  Error analyzing chat patterns: {e}")
-            return {}
 
     def _update_adaptive_weights_ema(self, emotions: Dict[str, float], impact_score: float):
         """
@@ -516,10 +416,11 @@ class UserProfile:
             for weight_key in self.adaptive_weights:
                 base_learning_rate = base_learning_rates.get(weight_key, 0.15)
                 effective_learning_rate = get_effective_alpha(base_learning_rate, self.message_count)
+                #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Formula>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
                 self.adaptive_weights[weight_key] = (
                     effective_learning_rate * observed_weight_proportions[weight_key] 
                     + (1 - effective_learning_rate) * self.adaptive_weights[weight_key]
-                )
+                )#<<<<<<<<<<<<<<<<<<<<<<<<<<<<Formula>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 
 
             # Normalize weights to sum to 1.0
             total_weight_sum = sum(self.adaptive_weights.values())
@@ -558,26 +459,6 @@ class UserProfile:
             return " | ".join(change_descriptions) if change_descriptions else "No significant changes"
         except Exception as e:
             return f"Error: {e}"
-
-    def _enable_weight_learning(self):
-        """Legacy method - weight learning now always active via EMA"""
-        pass
-
-    def _update_adaptive_weights(self):
-        """Legacy wrapper - now uses EMA approach"""
-        pass  # Replaced by _update_adaptive_weights_ema called every message
-
-    # ============================================================
-    # STATE AGGREGATION
-    # ============================================================
-
-    def _update_mid_term_rolling_window(self):
-        """Legacy method - mid-term now uses EMA inline"""
-        pass
-
-    def _update_long_term_frequency_based(self):
-        """Legacy method - long-term now uses EMA inline"""
-        pass
 
     # ============================================================
     # QUERY METHODS

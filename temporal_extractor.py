@@ -875,23 +875,6 @@ class TemporalExtractor:
 
 
 # ==========================================================
-# FACTORY FUNCTION
-# ==========================================================
-
-def create_extractor(reference_time: Optional[datetime] = None) -> TemporalExtractor:
-    """
-    Factory function to create TemporalExtractor
-    
-    Args:
-        reference_time: Reference datetime (default: now)
-    
-    Returns:
-        TemporalExtractor instance
-    """
-    return TemporalExtractor(reference_time)
-
-
-# ==========================================================
 # MAIN - TESTING
 # ==========================================================
 

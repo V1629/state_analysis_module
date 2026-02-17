@@ -77,35 +77,6 @@ def classify_emotions(text: str) -> Dict[str, float]:
         return {}
 
 
-def get_top_emotions(text: str, top_n: int = 5) -> Dict[str, float]:
-    """
-    Get top N emotions for text
-    
-    Args:
-        text: Input text
-        top_n: Number of top emotions to return
-    
-    Returns:
-        Dict of top emotions sorted by score descending
-    """
-    try:
-        all_emotions = classify_emotions(text)
-        
-        if not all_emotions:
-            return {}
-        
-        # Sort by score descending
-        sorted_emotion_pairs = sorted(all_emotions.items(), key=lambda pair: pair[1], reverse=True)
-        
-        # Return as dict with only top N emotions
-        top_emotions = {emotion_name: emotion_score for emotion_name, emotion_score in sorted_emotion_pairs[:top_n]}
-        return top_emotions
-    
-    except Exception as error:
-        print(f"❌ Error getting top emotions: {error}")
-        return {}
-
-
 # ==========================================
 # MAIN EXECUTION - TESTING
 # ==========================================
