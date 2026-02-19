@@ -228,77 +228,104 @@ Impact Distribution:
 
 ---
 
-# Part 3: PRISM Scoring (Future Implementation)
+# Part 3: Significance Score (SS) Calculation
 
-## What is PRISM?
+## What is SS?
 
-**PRISM** is a framework for calculating incident significance:
+**Significance Score (SS)** is a weighted sum that determines how significant an emotional event is:
 
 ```
-Significance Score (SS) = (P × R × I × S) / M
+SS = (w_i × Intensity) + (w_p × Persistence) + (w_r × Recency) + (w_m × Impact) + (w_v × Volatility)
 ```
 
 ---
 
-## PRISM Components
+## SS Components (PRISM Weights)
 
-| Letter | Component | Range | Description |
-|:------:|-----------|-------|-------------|
-| **P** | Persistence | 0.1-10 | Expected duration |
-| **R** | Resonance | 1-10 | Emotional intensity |
-| **I** | Impact | 1-5 | Life domains affected |
-| **S** | Severity | 0.1-3 | Functional impairment |
-| **M** | Malleability | 0.5-2 | Coping ability |
+| Letter | Component | Weight | Range | Description |
+|:------:|-----------|:------:|-------|-------------|
+| **I** | Intensity | 0.25 | 0.0-1.0 | Strength of the emotion |
+| **P** | Persistence | 0.20 | 0.0-1.0 | How long emotion has been present |
+| **R** | Recency | 0.20 | 0.0-1.0 | How recent the emotional event is |
+| **M** | Impact | 0.15 | 0.0-1.0 | Contextual impact of the event |
+| **S** | Stability (Volatility) | 0.20 | 0.0-1.0 | Emotional consistency |
 
 ---
 
-## PRISM Examples
+## How Each Component is Calculated
+
+```python
+# Intensity: Direct from emotion detector (0.0 - 1.0)
+intensity = detected_emotion_score
+
+# Persistence: Based on emotion history count (capped at 1.0)
+persistence = min(1.0, emotion_history_count / 10)
+
+# Recency: Decays based on days since last update
+recency = max(0.0, 1.0 - (days_since_update / decay_days))
+
+# Impact: From temporal impact calculation
+impact = calculated_temporal_impact
+
+# Volatility: Standard deviation of recent intensities
+volatility = stdev(last_5_intensities)
+```
+
+---
+
+## SS Examples
 
 ### Example 1: Minor Work Stress
 
 ```
-Persistence:  0.5  (few days)
-Resonance:    4    (moderate)
-Impact:       1    (work only)
-Severity:     0.5  (mild)
-Malleability: 1.5  (good coping)
+Intensity:    0.45  (moderate stress)
+Persistence:  0.20  (2nd occurrence → 2/10)
+Recency:      1.00  (just happened)
+Impact:       0.30  (low impact)
+Volatility:   0.10  (stable emotions)
 
-SS = (0.5 × 4 × 1 × 0.5) / 1.5 = 0.67 → Short-Term
+SS = (0.25 × 0.45) + (0.20 × 0.20) + (0.20 × 1.00) + (0.15 × 0.30) + (0.20 × 0.10)
+   = 0.1125 + 0.04 + 0.20 + 0.045 + 0.02
+   = 0.4175
 ```
 
-### Example 2: Job Loss
+### Example 2: Job Loss (Recent)
 
 ```
-Persistence:  5    (months)
-Resonance:    8    (high)
-Impact:       3    (work, finance, identity)
-Severity:     2    (significant)
-Malleability: 1.0  (moderate coping)
+Intensity:    0.85  (high sadness/fear)
+Persistence:  0.50  (5th emotional message → 5/10)
+Recency:      1.00  (just happened)
+Impact:       0.90  (high impact)
+Volatility:   0.35  (emotional swings)
 
-SS = (5 × 8 × 3 × 2) / 1.0 = 240 → Long-Term
+SS = (0.25 × 0.85) + (0.20 × 0.50) + (0.20 × 1.00) + (0.15 × 0.90) + (0.20 × 0.35)
+   = 0.2125 + 0.10 + 0.20 + 0.135 + 0.07
+   = 0.7175
 ```
 
-### Example 3: Relationship Issues
+### Example 3: Distant Loss (3 years ago)
 
 ```
-Persistence:  2    (weeks)
-Resonance:    6    (strong)
-Impact:       2    (relationships, mood)
-Severity:     1.5  (moderate)
-Malleability: 1.2  (some coping)
+Intensity:    0.72  (sadness/grief)
+Persistence:  0.30  (3rd emotional message → 3/10)
+Recency:      1.00  (message just received)
+Impact:       0.85  (high - distant past + grief)
+Volatility:   0.15  (relatively stable)
 
-SS = (2 × 6 × 2 × 1.5) / 1.2 = 30 → Mid-Term
+SS = (0.25 × 0.72) + (0.20 × 0.30) + (0.20 × 1.00) + (0.15 × 0.85) + (0.20 × 0.15)
+   = 0.18 + 0.06 + 0.20 + 0.1275 + 0.03
+   = 0.5975
 ```
 
 ---
 
-## Classification Thresholds
+## Score Interpretation
 
-| Score Range | Classification |
-|-------------|----------------|
-| SS < 15 | Short-Term |
-| 15 ≤ SS < 75 | Mid-Term |
-| SS ≥ 75 | Long-Term |
+| Score Range | Significance | Typical Events |
+|-------------|--------------|----------------|
+| SS < 0.3 | Low | Casual mentions, passing moods |
+| 0.3 ≤ SS < 0.6 | Moderate | Work stress, minor conflicts |
+| SS ≥ 0.6 | High | Major life events, trauma
 
 ---
 
@@ -373,7 +400,7 @@ Never fully decays — maintains baseline relevance.
 |---------|---------|-------------|
 | **EMA** | Smooth state updates | `α × new + (1-α) × old` |
 | **Three States** | Multi-horizon tracking | ST / MT / LT |
-| **PRISM** | Incident classification | `(P×R×I×S) / M` |
+| **SS (Significance Score)** | Incident classification | `Σ(weight × component)` |
 | **Decay** | Time-based relevance | Exponential / S-curve |
 
 ---

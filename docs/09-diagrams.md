@@ -397,31 +397,28 @@ graph LR
 
 ---
 
-## PRISM Scoring
+## Significance Score (SS) Calculation
 
 ```mermaid
 graph TB
-    subgraph "PRISM Components"
-        P[P: Persistence<br/>0.1-10]
-        R[R: Resonance<br/>1-10]
-        I[I: Impact<br/>1-5]
-        S[S: Severity<br/>0.1-3]
-        M[M: Malleability<br/>0.5-2]
+    subgraph "SS Components"
+        I[Intensity<br/>weight: 0.25]
+        P[Persistence<br/>weight: 0.20]
+        R[Recency<br/>weight: 0.20]
+        M[Impact<br/>weight: 0.15]
+        V[Volatility<br/>weight: 0.20]
     end
     
-    P --> Mult1[×]
-    R --> Mult1
-    Mult1 --> Mult2[×]
-    I --> Mult2
-    Mult2 --> Mult3[×]
-    S --> Mult3
-    Mult3 --> Div[÷]
-    M --> Div
-    Div --> SS[Significance Score]
+    I --> |× 0.25| Sum((+))
+    P --> |× 0.20| Sum
+    R --> |× 0.20| Sum
+    M --> |× 0.15| Sum
+    V --> |× 0.20| Sum
+    Sum --> SS[Significance Score<br/>0.0 - 1.0]
     
-    SS --> |< 15| ST[Short-Term]
-    SS --> |15-75| MT[Mid-Term]
-    SS --> |≥ 75| LT[Long-Term]
+    SS --> |< 0.3| Low[Low Significance]
+    SS --> |0.3-0.6| Mod[Moderate Significance]
+    SS --> |≥ 0.6| High[High Significance]
 ```
 
 ---
@@ -524,7 +521,7 @@ graph TD
 | Profile Lifecycle | [User Interaction](#profile-lifecycle) | Profile maturity |
 | Data Model | [Entity Relationships](#data-model) | ER diagram |
 | EMA Formula | [Algorithms](#ema-formula) | Math visualization |
-| PRISM Scoring | [Algorithms](#prism-scoring) | Score calculation |
+| SS Calculation | [Algorithms](#significance-score-ss-calculation) | Score calculation |
 | Decay Curves | [Algorithms](#decay-curves) | Time-based decay |
 | Import Graph | [Dependencies](#import-graph) | Module imports |
 | Directory Structure | [Dependencies](#directory-structure) | File organization |

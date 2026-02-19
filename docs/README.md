@@ -82,7 +82,7 @@ After completing each level, you should be able to answer:
 ### After Level 5 (Core Concepts)
 - [ ] What is EMA and why do we use it?
 - [ ] What are Short-Term, Mid-Term, and Long-Term states?
-- [ ] How does PRISM scoring classify incidents?
+- [ ] How does Significance Score (SS) classify incidents?
 
 ### After Level 6-7 (Module + API Reference)
 - [ ] What does each Python file do?
