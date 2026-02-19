@@ -1,6 +1,5 @@
 # 08 — Configuration
 
-> **Reading time:** 10 minutes  
 > **Prerequisites:** [07-api-reference.md](./07-api-reference.md)  
 > **Next:** [09-diagrams.md](./09-diagrams.md)
 

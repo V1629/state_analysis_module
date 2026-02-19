@@ -1,6 +1,5 @@
 # 07 — API Reference
 
-> **Reading time:** 15 minutes  
 > **Prerequisites:** [06-module-reference.md](./06-module-reference.md)  
 > **Next:** [08-configuration.md](./08-configuration.md)
 
@@ -414,6 +413,46 @@ def get_dominant_emotions(self, top_n: int = 5) -> Dict[str, List[Tuple[str, flo
     'long_term': [...]
 }
 ```
+
+---
+
+### `_adapt_weights_based_on_pattern()`
+
+Adapts SS weights based on user's emotional patterns.
+
+```python
+def _adapt_weights_based_on_pattern(self, state_type: str) -> Dict[str, float]
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `state_type` | `str` | `'short_term'`, `'mid_term'`, or `'long_term'` |
+
+**Returns:** Adapted weights dict (normalized to sum=1.0)
+
+```python
+# Example return value
+{
+    "intensity": 0.24,
+    "persistence": 0.16,
+    "recency": 0.22,
+    "impact": 0.15,
+    "volatility": 0.23
+}
+```
+
+**Adaptation Rules:**
+
+| Pattern | Condition | Adjustment |
+|---------|-----------|------------|
+| High volatility | `volatility > 0.3` | ↑ volatility +0.05, ↓ persistence -0.05 |
+| Low volatility | `volatility < 0.1` | ↑ persistence +0.03, ↓ volatility -0.03 |
+| Not enough data | `history < 3` | Return base weights (no adaptation) |
+
+**Constraints:**
+- `MIN_WEIGHT = 0.10`
+- `MAX_WEIGHT = 0.30`
+- All weights normalized to sum = 1.0
 
 ---
 

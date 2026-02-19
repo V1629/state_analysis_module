@@ -1,6 +1,5 @@
 # 02 — Quick Start
 
-> **Reading time:** 10 minutes  
 > **Prerequisites:** [01-introduction.md](./01-introduction.md)  
 > **Next:** [03-architecture.md](./03-architecture.md)
 

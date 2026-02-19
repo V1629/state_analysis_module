@@ -8,19 +8,17 @@
 
 Follow this sequence to build understanding layer by layer:
 
-| Order | Document | Time | What You'll Learn |
-|:-----:|----------|:----:|-------------------|
-| **1** | [01-introduction.md](./01-introduction.md) | 5 min | What this module does, why it exists |
-| **2** | [02-quick-start.md](./02-quick-start.md) | 10 min | Setup, run the module, see it in action |
-| **3** | [03-architecture.md](./03-architecture.md) | 15 min | High-level design, component overview |
-| **4** | [04-data-flow.md](./04-data-flow.md) | 15 min | How data moves through the pipeline |
-| **5** | [05-core-concepts.md](./05-core-concepts.md) | 20 min | EMA, PRISM, State Management theory |
-| **6** | [06-module-reference.md](./06-module-reference.md) | 30 min | Each Python file explained in detail |
-| **7** | [07-api-reference.md](./07-api-reference.md) | 20 min | Function signatures, parameters, examples |
-| **8** | [08-configuration.md](./08-configuration.md) | 10 min | Environment setup, thresholds, tuning |
-| **9** | [09-diagrams.md](./09-diagrams.md) | 10 min | All visual diagrams in one place |
-
-**Total estimated reading time:** ~2.5 hours for complete understanding
+| Order | Document | What You'll Learn |
+|:-----:|----------|-------------------|
+| **1** | [01-introduction.md](./01-introduction.md) | What this module does, why it exists |
+| **2** | [02-quick-start.md](./02-quick-start.md) | Setup, run the module, see it in action |
+| **3** | [03-architecture.md](./03-architecture.md) | High-level design, component overview |
+| **4** | [04-data-flow.md](./04-data-flow.md) | How data moves through the pipeline |
+| **5** | [05-core-concepts.md](./05-core-concepts.md) | EMA, SS Calculation, State Management theory |
+| **6** | [06-module-reference.md](./06-module-reference.md) | Each Python file explained in detail |
+| **7** | [07-api-reference.md](./07-api-reference.md) | Function signatures, parameters, examples |
+| **8** | [08-configuration.md](./08-configuration.md) | Environment setup, thresholds, tuning |
+| **9** | [09-diagrams.md](./09-diagrams.md) | All visual diagrams in one place |
 
 ---
 

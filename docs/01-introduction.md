@@ -1,6 +1,5 @@
 # 01 — Introduction
 
-> **Reading time:** 5 minutes  
 > **Prerequisites:** None  
 > **Next:** [02-quick-start.md](./02-quick-start.md)
 

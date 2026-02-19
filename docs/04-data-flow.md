@@ -1,6 +1,5 @@
 # 04 — Data Flow
 
-> **Reading time:** 15 minutes  
 > **Prerequisites:** [03-architecture.md](./03-architecture.md)  
 > **Next:** [05-core-concepts.md](./05-core-concepts.md)
 

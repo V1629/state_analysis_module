@@ -1,6 +1,5 @@
 # 05 — Core Concepts
 
-> **Reading time:** 20 minutes  
 > **Prerequisites:** [04-data-flow.md](./04-data-flow.md)  
 > **Next:** [06-module-reference.md](./06-module-reference.md)
 
@@ -118,6 +117,113 @@ def get_effective_alpha(base_alpha, message_count, decay_constant=200):
 | 500 | 0.15 | 0.043 |
 
 **Result:** New profiles learn fast, mature profiles stabilize.
+
+---
+
+## Adaptive Weight Modification
+
+> **Key Feature:** SS weights start fixed but **adapt during conversation** based on the user's emotional patterns.
+
+### Initial Weights (Default)
+
+```python
+base_weights = {
+    "intensity": 0.25,
+    "persistence": 0.20,
+    "recency": 0.20,
+    "impact": 0.15,
+    "volatility": 0.20
+}
+```
+
+### How Weights Adapt
+
+The `_adapt_weights_based_on_pattern()` function adjusts weights based on user's emotional history:
+
+```python
+def _adapt_weights_based_on_pattern(self, state_type: str) -> Dict[str, float]:
+    """Adapt SS weights based on user's emotional patterns"""
+    
+    base_weights = {
+        "intensity": 0.25,
+        "persistence": 0.20,
+        "recency": 0.20,
+        "impact": 0.15,
+        "volatility": 0.20
+    }
+    
+    # Get recent history for this state
+    state_data = self.profile["states"].get(state_type, {})
+    history = state_data.get("recent_intensities", [])
+    
+    if len(history) < 3:
+        return base_weights  # Not enough data to adapt
+    
+    # Calculate volatility trend
+    volatility = statistics.stdev(history) if len(history) >= 2 else 0
+    
+    # Adapt weights based on patterns
+    adapted = base_weights.copy()
+    
+    if volatility > 0.3:  # High volatility user
+        adapted["volatility"] = min(0.30, adapted["volatility"] + 0.05)
+        adapted["persistence"] = max(0.10, adapted["persistence"] - 0.05)
+    
+    # Normalize to ensure sum = 1.0
+    total = sum(adapted.values())
+    return {k: v/total for k, v in adapted.items()}
+```
+
+### Adaptation Rules
+
+| Pattern Detected | Condition | Weight Adjustment |
+|------------------|-----------|-------------------|
+| High emotional volatility | `volatility > 0.3` | ↑ Volatility (+0.05), ↓ Persistence (-0.05) |
+| Stable emotional state | `volatility < 0.1` | ↑ Persistence (+0.03), ↓ Volatility (-0.03) |
+| Frequent intense emotions | `avg_intensity > 0.7` | ↓ Intensity (-0.03) to normalize |
+| Low engagement | `history_count < 3` | Use base weights (no adaptation) |
+
+### Weight Constraints
+
+```python
+MIN_WEIGHT = 0.10  # No weight below 10%
+MAX_WEIGHT = 0.30  # No weight above 30%
+
+# Always normalized: sum(weights.values()) == 1.0
+```
+
+### Example: Weight Evolution
+
+```
+User: High anxiety, frequent mood swings
+
+Session 1 (Initial - not enough data):
+┌─────────────┬──────────────┬─────────┬────────┬────────────┐
+│ Intensity   │ Persistence  │ Recency │ Impact │ Volatility │
+│    0.25     │     0.20     │  0.20   │  0.15  │    0.20    │
+└─────────────┴──────────────┴─────────┴────────┴────────────┘
+
+Session 5 (volatility detected = 0.42):
+┌─────────────┬──────────────┬─────────┬────────┬────────────┐
+│ Intensity   │ Persistence  │ Recency │ Impact │ Volatility │
+│    0.25     │     0.15 ↓   │  0.20   │  0.15  │   0.25 ↑   │
+└─────────────┴──────────────┴─────────┴────────┴────────────┘
+
+Session 15 (volatility stabilizes = 0.18):
+┌─────────────┬──────────────┬─────────┬────────┬────────────┐
+│ Intensity   │ Persistence  │ Recency │ Impact │ Volatility │
+│    0.24     │     0.18     │  0.20   │  0.15  │    0.23    │
+└─────────────┴──────────────┴─────────┴────────┴────────────┘
+```
+
+### Why Adaptive Weights?
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Personalization** | Each user's SS calculation becomes tailored to their pattern |
+| **Better predictions** | System learns what matters most for each user |
+| **Reduced noise** | Downweights erratic components for specific users |
+| **Self-correcting** | Adjusts as user's emotional patterns change over time |
 
 ---
 

@@ -1,6 +1,5 @@
 # 03 — Architecture
 
-> **Reading time:** 15 minutes  
 > **Prerequisites:** [01-introduction.md](./01-introduction.md), [02-quick-start.md](./02-quick-start.md)  
 > **Next:** [04-data-flow.md](./04-data-flow.md)
 

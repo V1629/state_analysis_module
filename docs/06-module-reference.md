@@ -1,6 +1,5 @@
 # 06 — Module Reference
 
-> **Reading time:** 25 minutes  
 > **Prerequisites:** [05-core-concepts.md](./05-core-concepts.md)  
 > **Next:** [07-api-reference.md](./07-api-reference.md)
 
@@ -572,6 +571,46 @@ def get_dominant_emotions(self, top_n: int = 5) -> Dict[str, List[Tuple[str, flo
         }
     """
 ```
+
+---
+
+### Method: `_adapt_weights_based_on_pattern()`
+
+Adapts SS weights based on user's emotional patterns during conversation.
+
+```python
+def _adapt_weights_based_on_pattern(self, state_type: str) -> Dict[str, float]:
+    """
+    Adapts SS calculation weights based on user's emotional history.
+    
+    Args:
+        state_type: 'short_term', 'mid_term', or 'long_term'
+    
+    Returns:
+        Adapted weights dict (normalized to sum=1.0)
+    
+    Process:
+        1. Get recent emotion history for the state
+        2. Calculate volatility from history
+        3. Adjust weights based on patterns:
+           - High volatility → ↑ volatility weight, ↓ persistence
+           - Low volatility → ↑ persistence weight, ↓ volatility
+        4. Normalize weights to ensure sum = 1.0
+    
+    Constraints:
+        - MIN_WEIGHT = 0.10
+        - MAX_WEIGHT = 0.30
+        - Requires at least 3 messages for adaptation
+    """
+```
+
+**Why Adaptive Weights?**
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Personalization** | SS calculation tailored to user's pattern |
+| **Better predictions** | System learns what matters for each user |
+| **Self-correcting** | Adjusts as patterns change over time |
 
 ---
 

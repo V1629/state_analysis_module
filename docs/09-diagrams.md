@@ -1,6 +1,5 @@
 # 09 — Diagrams
 
-> **Reading time:** 10 minutes (visual reference)  
 > **Prerequisites:** [01-introduction.md](./01-introduction.md)  
 
 ---
